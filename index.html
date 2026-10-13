@@ -94,6 +94,8 @@ header { display: grid; gap: 6px; }
 .chip.vis { background: var(--vis); color: var(--vis-ink); border-color: var(--vis); }
 .chip.lit { color: var(--lit); border-color: var(--lit); }
 .more { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+.infobox { display: flex; gap: 12px; align-items: center; }
+.infobox p { margin: 0; }
 .filterbox { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
 .filterbox > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .filters .cnt { color: var(--muted); font-size: 12px; }
@@ -197,14 +199,14 @@ details.settings[open] > summary { margin-bottom: 14px; }
           <span><i style="background:var(--lit)"></i>Sunlit, sky too bright</span>
           <span><i style="background:var(--dim)"></i>In Earth's shadow</span>
         </div>
-        <p class="hint">Drag to look around, pinch or scroll to zoom, tap a dot to select it. This is what you would see standing in your yard, with east on the right when you face north. Lines show where each satellite goes next, and yellow means it will still be lit and visible there. Planets are hollow diamonds and stars are small white dots. Tap one to see what it is.</p>
+        <p class="hint">Drag to look around, pinch or scroll to zoom, tap a dot to select it. This is what you would see standing in your yard, with east on the right when you face north. Lines show where each satellite goes next, and yellow means it will still be lit and visible there. Planets are small pictures drawn in code, not photos, and stars are white dots. Tap one to see what it is.</p>
         <div class="filters" role="group" aria-label="Show in this view">
           <label><input type="checkbox" id="lkPlanets" checked> Planets and Moon</label>
           <label><input type="checkbox" id="lkStars" checked> Bright stars</label>
           <label><input type="checkbox" id="lkNames" checked> Star names</label>
           <label><input type="checkbox" id="lkLines"> Constellation lines</label>
         </div>
-        <p id="lookInfo" class="hint"></p>
+        <div class="infobox"><canvas id="lookPic" width="160" height="160" style="width:80px;height:80px" hidden aria-hidden="true"></canvas><p id="lookInfo" class="hint"></p></div>
         <div class="btnrow" style="justify-content:center;margin-top:10px">
           <button class="btn" id="lFind" type="button">Look at one</button>
           <button class="btn" id="lUp" type="button">Straight up</button>
@@ -1464,6 +1466,51 @@ function pickAt(hits, x, y) {
 
 
 /* ---------- planets, Moon and stars (3D view only) ---------- */
+/* Stylised pictures of the Moon and planets, drawn in code (they are not photos). */
+var PLANET_FACTS = {
+  Mercury: 'The closest planet to the Sun. It never strays far from it, so look near sunrise or sunset.',
+  Venus: 'The brightest planet, wrapped in thick cloud. Often called the morning or evening star.',
+  Mars: 'The red planet. Its brightness changes a lot as Earth passes it every couple of years.',
+  Jupiter: 'The largest planet. Binoculars show its four biggest moons as dots in a line.',
+  Saturn: 'The ringed planet. A small telescope shows the rings clearly.',
+  Moon: 'Earth’s Moon. The bright side always faces the Sun.'
+};
+function drawBody(g, name, x, y, r, o) {
+  o = o || {};
+  g.save(); g.translate(x, y);
+  function disc(col) { g.fillStyle = col; g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.fill(); }
+  function clipDisc() { g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.clip(); }
+  function stripe(yy, h, col) { g.fillStyle = col; g.fillRect(-r, yy * r, 2 * r, h * r); }
+  if (name === 'Moon') {
+    g.rotate(o.ang || 0);
+    var k = typeof o.lit === 'number' ? o.lit : 1, cI = 2 * k - 1, th;
+    g.fillStyle = '#8a8f99'; g.globalAlpha = 0.28; g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.fill(); g.globalAlpha = 1;
+    g.fillStyle = '#e9e6dc'; g.beginPath();
+    for (th = -90; th <= 90; th += 10) g.lineTo(r * Math.cos(th * RAD), r * Math.sin(th * RAD));
+    for (th = 90; th >= -90; th -= 10) g.lineTo(-cI * r * Math.cos(th * RAD), r * Math.sin(th * RAD));
+    g.closePath(); g.fill();
+    if (r > 14) { g.save(); g.clip(); g.fillStyle = 'rgba(120,120,125,0.35)'; [[-0.3, -0.2, 0.22], [0.25, 0.1, 0.16], [-0.1, 0.45, 0.14], [0.35, -0.4, 0.1]].forEach(function (c) { g.beginPath(); g.arc(c[0] * r, c[1] * r, c[2] * r, 0, 6.2832); g.fill(); }); g.restore(); }
+    g.restore(); return;
+  }
+  if (name === 'Saturn') {
+    g.rotate(-0.35);
+    var ring = function (front) { g.lineWidth = Math.max(1.5, r * 0.22); g.strokeStyle = '#cdb98a'; g.beginPath(); g.ellipse(0, 0, r * 1.9, r * 0.55, 0, front ? 0 : Math.PI, front ? Math.PI : 2 * Math.PI); g.stroke(); };
+    ring(false); disc('#e3c991'); g.save(); clipDisc(); stripe(-0.35, 0.18, '#c9a870'); stripe(0.15, 0.2, '#efd9a8'); g.restore(); ring(true);
+  } else if (name === 'Jupiter') {
+    disc('#dcb98e'); g.save(); clipDisc();
+    stripe(-0.7, 0.22, '#b98a62'); stripe(-0.3, 0.16, '#efdcc0'); stripe(0.05, 0.22, '#b98a62'); stripe(0.45, 0.18, '#d4a57a'); stripe(0.72, 0.2, '#b98a62');
+    g.fillStyle = '#b5533c'; g.beginPath(); g.ellipse(r * 0.3, r * 0.3, r * 0.22, r * 0.12, 0, 0, 6.2832); g.fill(); g.restore();
+  } else if (name === 'Mars') {
+    disc('#c8553a'); g.save(); clipDisc(); g.fillStyle = 'rgba(90,35,25,0.45)'; g.beginPath(); g.ellipse(-r * 0.2, r * 0.15, r * 0.4, r * 0.22, 0.4, 0, 6.2832); g.fill();
+    g.fillStyle = '#f4efe8'; g.beginPath(); g.ellipse(0, -r * 0.95, r * 0.5, r * 0.22, 0, 0, 6.2832); g.fill(); g.restore();
+  } else if (name === 'Venus') {
+    disc('#ebdcae'); g.save(); clipDisc(); stripe(-0.4, 0.12, 'rgba(255,255,255,0.35)'); stripe(0.2, 0.14, 'rgba(190,160,100,0.35)'); g.restore();
+  } else {
+    disc('#9b948b'); g.save(); clipDisc(); g.fillStyle = 'rgba(60,55,50,0.4)'; [[-0.3, -0.2, 0.2], [0.3, 0.25, 0.15], [0.05, 0.5, 0.12]].forEach(function (c) { g.beginPath(); g.arc(c[0] * r, c[1] * r, c[2] * r, 0, 6.2832); g.fill(); }); g.restore();
+  }
+  g.restore();
+}
+
 var PLANETS = ['Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn'];
 function skyFrame() {
   var ctx = S.ctx, key = ctx.ms + '|' + S.lat + '|' + S.lon + '|' + S.alt;
@@ -1598,10 +1645,20 @@ function drawLook() {
       if (pl.el < 0) return;
       var c4 = PJ(pl.az, pl.el);
       if (!c4.ok || c4.x < -20 || c4.y < -20 || c4.x > size + 20 || c4.y > size + 20) return;
-      var moon = pl.name === 'Moon', rr = moon ? 8 : 5;
-      g.strokeStyle = C('--fg'); g.fillStyle = C('--fg'); g.lineWidth = 1.8;
-      if (moon) { g.globalAlpha = 0.15 + 0.8 * pl.lit; g.beginPath(); g.arc(c4.x, c4.y, rr, 0, 6.2832); g.fill(); g.globalAlpha = 1; g.beginPath(); g.arc(c4.x, c4.y, rr, 0, 6.2832); g.stroke(); }
-      else { g.beginPath(); g.moveTo(c4.x, c4.y - rr); g.lineTo(c4.x + rr, c4.y); g.lineTo(c4.x, c4.y + rr); g.lineTo(c4.x - rr, c4.y); g.closePath(); g.stroke(); }
+      var moon = pl.name === 'Moon', rr = moon ? 10 : 6;
+      if (moon) {
+        // lit side faces the Sun: find which way the Sun lies on screen from the Moon
+        var ms = [Math.sin(pl.az * RAD) * Math.cos(pl.el * RAD), Math.cos(pl.az * RAD) * Math.cos(pl.el * RAD), Math.sin(pl.el * RAD)];
+        var sn = [Math.sin(S.ctx.sunAz * RAD) * Math.cos(S.ctx.sunEl * RAD), Math.cos(S.ctx.sunAz * RAD) * Math.cos(S.ctx.sunEl * RAD), Math.sin(S.ctx.sunEl * RAD)];
+        var dp = ms[0] * sn[0] + ms[1] * sn[1] + ms[2] * sn[2], tv = [sn[0] - dp * ms[0], sn[1] - dp * ms[1], sn[2] - dp * ms[2]], tl = Math.sqrt(tv[0] * tv[0] + tv[1] * tv[1] + tv[2] * tv[2]) || 1;
+        var q = [ms[0] + 0.02 * tv[0] / tl, ms[1] + 0.02 * tv[1] / tl, ms[2] + 0.02 * tv[2] / tl];
+        var qa = Math.atan2(q[0], q[1]) * DEG, qe = Math.asin(Math.max(-1, Math.min(1, q[2] / Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2])))) * DEG, c5 = PJ(qa, qe);
+        S.moonAng = c5.ok ? Math.atan2(c5.y - c4.y, c5.x - c4.x) : 0; S.moonLit = pl.lit;
+        drawBody(g, 'Moon', c4.x, c4.y, rr, { ang: S.moonAng, lit: pl.lit });
+        g.strokeStyle = C('--fg'); g.lineWidth = 1; g.globalAlpha = 0.6; g.beginPath(); g.arc(c4.x, c4.y, rr, 0, 6.2832); g.stroke(); g.globalAlpha = 1;
+      } else {
+        drawBody(g, pl.name, c4.x, c4.y, rr);
+      }
       g.lineWidth = 3; g.strokeStyle = C('--bg'); g.strokeText(pl.name, c4.x + rr + 5, c4.y);
       g.fillStyle = C('--fg'); g.fillText(pl.name, c4.x + rr + 5, c4.y);
       S.skyHits.push({ x: c4.x, y: c4.y, key: 'pl:' + pl.name });
@@ -1671,9 +1728,15 @@ function drawLook() {
   g.fillText('Facing ' + compass(L.yaw) + ', tilted ' + Math.round(L.pitch) + '° up', 10, 14);
 
   var sr = (S.rows || []).filter(function (rw) { return rw.s.id === S.selected; })[0];
+  var pic = $('lookPic'), body = (!sr && S.pick && S.pick.indexOf('pl:') === 0) ? S.pick.slice(3) : null;
+  pic.hidden = !body;
+  if (body) {
+    var pg = pic.getContext('2d');
+    if (pg) { pg.setTransform(2, 0, 0, 2, 0, 0); pg.clearRect(0, 0, 80, 80); drawBody(pg, body, 40, 40, body === 'Saturn' ? 17 : 28, { ang: S.moonAng || 0, lit: S.moonLit }); }
+  }
   $('lookInfo').textContent = sr
     ? sr.s.name + ': ' + Math.round(sr.sm.el) + '° up toward ' + compass(sr.sm.az) + '. ' + headingText(sr) + '.'
-    : (S.pick && S.skyInfo && S.skyInfo[S.pick] ? S.skyInfo[S.pick] : 'Tap a satellite, planet or star to see what it is, or press Look at one.');
+    : (S.pick && S.skyInfo && S.skyInfo[S.pick] ? S.skyInfo[S.pick] + (body && PLANET_FACTS[body] ? ' ' + PLANET_FACTS[body] : '') : 'Tap a satellite, planet or star to see what it is, or press Look at one.');
 }
 function clampLook() {
   S.look.pitch = Math.max(-20, Math.min(90, S.look.pitch));

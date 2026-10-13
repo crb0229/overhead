@@ -1,6 +1,8 @@
-Tue Oct 13 18:42:32 UTC 2026
-stations http=200 bytes=3024
-visual http=200 bytes=26040
-starlink http=200 bytes=1789872
-last30 http=404 bytes=16
+Tue Oct 13 18:47:12 UTC 2026
+stations (stations) http=200 bytes=3024
+visual (visual) http=200 bytes=26040
+starlink (starlink) http=200 bytes=1789872
+last30 (tle-new) http=200 bytes=67
+Invalid query: "GROUP=tle-new&FORMAT=tle" (GROUP=tle-new not found)
+last30 (last-30-days) http=404 bytes=16
 No GP data found

@@ -194,7 +194,7 @@ details.settings[open] > summary { margin-bottom: 14px; }
           <span><i style="background:var(--fg)"></i>Sunlit elsewhere</span>
           <span><i style="background:var(--dim)"></i>In shadow</span>
         </div>
-        <p class="hint">Drag to rotate, tap a dot to select it. Select one and the arrows on its orbit line show which way it is moving. The shaded side is night. Heights are to scale, so low-orbit satellites hug the surface.</p>
+        <p class="hint">Drag to rotate, tap a dot to select it. Select one and the arrows on its orbit line show which way it is moving. The lighter side is daylight and the darker side is night. Heights are to scale, so low-orbit satellites hug the surface.</p>
         <div class="btnrow" style="justify-content:center;margin-top:10px">
           <button class="btn" id="gHome" type="button">Center on me</button>
           <button class="btn" id="gIn" type="button" aria-label="Zoom in">Zoom in</button>
@@ -902,13 +902,17 @@ function drawGlobe() {
     var sg = shadeCv.getContext('2d'), img = sg && sg.createImageData ? sg.createImageData(N, N) : null;
     if (img && img.data) {
       var sv = V(S.sunEcf[0], S.sunEcf[1], S.sunEcf[2]), d = img.data;
+      function rgb(h) { var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h); return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null; }
+      var bgc = rgb(C('--bg')), acc = rgb(C('--accent')) || [125, 180, 255];
+      var darkTheme = !bgc || (bgc[0] + bgc[1] + bgc[2]) < 300;   // on a dark page the night overlay is invisible, so tint the day side instead
       for (var j = 0; j < N; j++) {
         for (var i = 0; i < N; i++) {
           var u = (i + 0.5) / N * 2 - 1, v = 1 - (j + 0.5) / N * 2, r2 = u * u + v * v, o = (j * N + i) * 4;
           if (r2 >= 1) { d[o + 3] = 0; continue; }
           var dot = Math.sqrt(1 - r2) * sv[0] + u * sv[1] + v * sv[2];
           var a = dot > 0.08 ? 0 : (dot < -0.12 ? 1 : (0.08 - dot) / 0.2);
-          d[o] = 4; d[o + 1] = 8; d[o + 2] = 22; d[o + 3] = Math.round(a * 160);
+          if (darkTheme) { d[o] = acc[0]; d[o + 1] = acc[1]; d[o + 2] = acc[2]; d[o + 3] = Math.round((1 - a) * 80); }
+          else { d[o] = 4; d[o + 1] = 8; d[o + 2] = 22; d[o + 3] = Math.round(a * 160); }
         }
       }
       sg.putImageData(img, 0, 0);

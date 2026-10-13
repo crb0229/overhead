@@ -177,7 +177,7 @@ details.settings[open] > summary { margin-bottom: 14px; }
           <span><i style="background:var(--fg)"></i>Sunlit elsewhere</span>
           <span><i style="background:var(--dim)"></i>In shadow</span>
         </div>
-        <p class="hint">Drag to rotate, tap a dot to select it. The fading line behind each dot is where it will be over the next 20 minutes, and the small arrow shows its heading. The shaded side is night. Heights are to scale, so low-orbit satellites hug the surface.</p>
+        <p class="hint">Drag to rotate, tap a dot to select it. The shaded side is night. Heights are to scale, so low-orbit satellites hug the surface.</p>
         <div class="btnrow" style="justify-content:center;margin-top:10px">
           <button class="btn" id="gHome" type="button">Center on me</button>
           <button class="btn" id="gIn" type="button" aria-label="Zoom in">Zoom in</button>
@@ -583,8 +583,7 @@ function recompute() {
     if (sm.el > 0) rows.push({ s: s, sm: sm, nx: sampleSat(s, ctxN, obs), vis: vis });
     if (wantGlobe && (s.group !== 'starlink' || S.glob.star || vis || s.id === S.selected)) {
       glob.push({ s: s, e: satellite.eciToEcf(sm.pos, ctx.gmst),
-                  st: sm.el > 0 ? (vis ? 'vis' : (sm.sunlit ? 'lit' : 'shadow')) : (sm.sunlit ? 'sun' : 'dark'),
-                  tr: (s.group !== 'starlink' || vis || s.id === S.selected) ? futureTrack(s, ms) : null });
+                  st: sm.el > 0 ? (vis ? 'vis' : (sm.sunlit ? 'lit' : 'shadow')) : (sm.sunlit ? 'sun' : 'dark') });
     }
   }
   S.globPts = glob; S.orbit = null;
@@ -839,18 +838,6 @@ function draw() {
 /* ---------- globe ---------- */
 var EARTH = 6371, shadeCv = null;
 
-/* Where a satellite will be over the next 20 minutes, in earth-fixed coordinates (a ground track at height). */
-function futureTrack(sat, ms) {
-  var pts = [];
-  for (var i = 0; i <= 40; i++) {
-    var d = new Date(ms + i * 30000), pv;
-    try { pv = satellite.propagate(sat.satrec, d); } catch (e) { break; }
-    if (!pv || !pv.position) break;
-    pts.push(satellite.eciToEcf(pv.position, satellite.gstime(d)));
-  }
-  return pts.length > 2 ? pts : null;
-}
-
 function orbitRing(sat, ctx) {
   var no = sat.satrec.no;
   if (!(no > 0)) return null;
@@ -941,35 +928,6 @@ function drawGlobe() {
     });
     g.restore();
   }
-
-  // where each one is heading over the next 20 minutes
-  g.save(); g.lineWidth = 1.6; g.lineCap = 'round';
-  var trCol = { vis: '--vis', lit: '--lit', shadow: '--dim', sun: '--fg', dark: '--dim' };
-  S.globPts.forEach(function (o) {
-    if (!o.tr) return;
-    var sel = o.s.id === S.selected, n = o.tr.length, prev = null, last = null, before = null;
-    g.strokeStyle = C(trCol[o.st]);
-    for (var i = 0; i < n; i++) {
-      var e = o.tr[i], cur = P(e.x / EARTH, e.y / EARTH, e.z / EARTH);
-      cur.ok = cur.d > 0 || !onDisc(cur);
-      if (prev && prev.ok && cur.ok) {
-        g.globalAlpha = (sel ? 0.95 : 0.7) * (1 - i / n) * ((prev.d > 0 && cur.d > 0) ? 1 : 0.4) + 0.05;
-        g.beginPath(); g.moveTo(prev.x, prev.y); g.lineTo(cur.x, cur.y); g.stroke();
-      }
-      if (i === 6 && cur.ok && prev && prev.ok && cur.d > 0) { last = cur; before = prev; }
-      prev = cur;
-    }
-    if (last) {
-      var ang = Math.atan2(last.y - before.y, last.x - before.x), L = sel ? 8 : 6;
-      g.globalAlpha = sel ? 1 : 0.8; g.fillStyle = C(trCol[o.st]);
-      g.beginPath();
-      g.moveTo(last.x + Math.cos(ang) * L * 0.6, last.y + Math.sin(ang) * L * 0.6);
-      g.lineTo(last.x + Math.cos(ang + 2.5) * L * 0.6, last.y + Math.sin(ang + 2.5) * L * 0.6);
-      g.lineTo(last.x + Math.cos(ang - 2.5) * L * 0.6, last.y + Math.sin(ang - 2.5) * L * 0.6);
-      g.closePath(); g.fill();
-    }
-  });
-  g.restore();
 
   // satellites
   S.ghits = [];

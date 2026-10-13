@@ -177,7 +177,7 @@ details.settings[open] > summary { margin-bottom: 14px; }
           <span><i style="background:var(--fg)"></i>Sunlit elsewhere</span>
           <span><i style="background:var(--dim)"></i>In shadow</span>
         </div>
-        <p class="hint">Drag to rotate, tap a dot to select it. The shaded side is night. Heights are to scale, so low-orbit satellites hug the surface.</p>
+        <p class="hint">Drag to rotate, tap a dot to select it. Select one and the arrows on its orbit line show which way it is moving. The shaded side is night. Heights are to scale, so low-orbit satellites hug the surface.</p>
         <div class="btnrow" style="justify-content:center;margin-top:10px">
           <button class="btn" id="gHome" type="button">Center on me</button>
           <button class="btn" id="gIn" type="button" aria-label="Zoom in">Zoom in</button>
@@ -927,6 +927,19 @@ function drawGlobe() {
       prev = cur;
     });
     g.restore();
+    // arrowheads show which way it is travelling (the ring starts at its position now and runs forward in time)
+    [3, 24, 46, 68].forEach(function (i) {
+      var p0 = S.orbit[i - 1], p1 = S.orbit[i + 1];
+      if (!p0 || !p1) return;
+      var a = P(p0.x / EARTH, p0.y / EARTH, p0.z / EARTH), b = P(p1.x / EARTH, p1.y / EARTH, p1.z / EARTH);
+      if (a.d <= 0 || b.d <= 0) return;
+      var ang = Math.atan2(b.y - a.y, b.x - a.x), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, L = 7;
+      g.fillStyle = C('--vis'); g.beginPath();
+      g.moveTo(m.x + Math.cos(ang) * L, m.y + Math.sin(ang) * L);
+      g.lineTo(m.x + Math.cos(ang + 2.5) * L, m.y + Math.sin(ang + 2.5) * L);
+      g.lineTo(m.x + Math.cos(ang - 2.5) * L, m.y + Math.sin(ang - 2.5) * L);
+      g.closePath(); g.fill();
+    });
   }
 
   // satellites

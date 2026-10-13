@@ -745,7 +745,7 @@ var HOSTED = true;   // true when published as its own web page with a daily dat
 
 /* Hosted: read the daily copy from the same GitHub repository. Otherwise ask CelesTrak directly. */
 function dataUrls(g) {
-  if (!HOSTED) return [BASE + (g === 'last30' ? 'last-30-days' : g)];
+  if (!HOSTED) return [BASE + (g === 'last30' ? 'tle-new' : g)];
   var m = location.hostname.match(/^([^.]+)\.github\.io$/), parts = location.pathname.split('/').filter(Boolean);
   var rel = 'data/' + g + '.tle';
   if (m && parts.length) return ['https://raw.githubusercontent.com/' + m[1] + '/' + parts[0] + '/main/' + rel, rel];
@@ -1416,32 +1416,43 @@ function pickAt(hits, x, y) {
   return best;
 }
 (function wireGlobe() {
-  var cv = $('globe'), st = null;
+  var cv = $('globe'), ptrs = {}, st = null;
+  function count() { return Object.keys(ptrs).length; }
+  function dist() { var k = Object.keys(ptrs), a = ptrs[k[0]], b = ptrs[k[1]]; return Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)); }
   cv.addEventListener('pointerdown', function (e) {
-    st = { x: e.clientX, y: e.clientY, moved: false };
+    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
     try { cv.setPointerCapture(e.pointerId); } catch (x) {}
+    st = { moved: count() > 1, d: count() > 1 ? dist() : 0 };
     cv.style.cursor = 'grabbing';
   });
   cv.addEventListener('pointermove', function (e) {
-    if (!st) return;
-    var dx = e.clientX - st.x, dy = e.clientY - st.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) st.moved = true;
-    var per = 0.4 / S.glob.k;
-    S.glob.lon0 -= dx * per; S.glob.lat0 += dy * per;
-    st.x = e.clientX; st.y = e.clientY;
+    if (!ptrs[e.pointerId] || !st) return;
+    var old = ptrs[e.pointerId], dx = e.clientX - old.x, dy = e.clientY - old.y;
+    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (count() >= 2) {
+      var d = dist();
+      if (st.d > 0) S.glob.k *= d / st.d;
+      st.d = d; st.moved = true;
+    } else {
+      if (Math.abs(dx) + Math.abs(dy) > 2) st.moved = true;
+      var per = 0.4 / S.glob.k;
+      S.glob.lon0 -= dx * per; S.glob.lat0 += dy * per;
+    }
     clampGlobe(); drawGlobe();
   });
   function end(e) {
+    var had = !!ptrs[e.pointerId];
+    delete ptrs[e.pointerId];
     cv.style.cursor = 'grab';
-    if (st && !st.moved) {
+    if (had && st && !st.moved && count() === 0) {
       var r = cv.getBoundingClientRect(), h = pickAt(S.ghits, e.clientX - r.left, e.clientY - r.top);
       S.selected = h ? (S.selected === h.id ? null : h.id) : null;
       recompute();
     }
-    st = null;
+    if (count() === 0) st = null;
   }
   cv.addEventListener('pointerup', end);
-  cv.addEventListener('pointercancel', function () { st = null; cv.style.cursor = 'grab'; });
+  cv.addEventListener('pointercancel', function (e) { delete ptrs[e.pointerId]; if (count() === 0) st = null; cv.style.cursor = 'grab'; });
   cv.addEventListener('wheel', function (e) { e.preventDefault(); S.glob.k *= e.deltaY < 0 ? 1.1 : 0.9; clampGlobe(); drawGlobe(); }, { passive: false });
   $('tabSky').addEventListener('click', function () { setTab('sky'); });
   $('tabGlobe').addEventListener('click', function () { setTab('globe'); });

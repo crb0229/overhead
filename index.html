@@ -158,17 +158,17 @@ details.settings[open] > summary { margin-bottom: 14px; }
   <div class="grid">
     <section class="card" aria-label="Sky chart and globe">
       <div class="cardhead">
-        <h2 id="viewhead">Sky chart</h2>
+        <h2 id="viewhead">Globe</h2>
         <div class="seg" role="group" aria-label="View">
-          <button type="button" id="tabSky" aria-pressed="true">Sky</button>
-          <button type="button" id="tabLook" aria-pressed="false">Sky 3D</button>
-          <button type="button" id="tabGlobe" aria-pressed="false">Globe</button>
+          <button type="button" id="tabGlobe" aria-pressed="true">Globe</button>
+          <button type="button" id="tabLook" aria-pressed="false">Look up</button>
+          <button type="button" id="tabSky" aria-pressed="false">Sky</button>
         </div>
       </div>
-      <canvas id="sky" role="img" aria-label="Chart of satellites above the horizon, centered on straight up"></canvas>
+      <canvas id="sky" hidden role="img" aria-label="Chart of satellites above the horizon, centered on straight up"></canvas>
       <canvas id="look" role="img" aria-label="Interactive view looking up from your location. Drag to look around, pinch to zoom." hidden></canvas>
-      <canvas id="globe" role="img" aria-label="Globe showing satellites around the Earth. Drag to rotate." hidden></canvas>
-      <div id="skyNote">
+      <canvas id="globe" role="img" aria-label="Globe showing satellites around the Earth. Drag to rotate."></canvas>
+      <div id="skyNote" hidden>
         <div class="legend">
           <span><i style="background:var(--vis)"></i>Visible to the eye</span>
           <span><i style="background:var(--lit)"></i>Sunlit, sky too bright</span>
@@ -186,12 +186,12 @@ details.settings[open] > summary { margin-bottom: 14px; }
         <p id="lookInfo" class="hint"></p>
         <div class="btnrow" style="justify-content:center;margin-top:10px">
           <button class="btn" id="lFind" type="button">Look at one</button>
-          <button class="btn" id="lUp" type="button">Look up</button>
+          <button class="btn" id="lUp" type="button">Straight up</button>
           <button class="btn" id="lIn" type="button" aria-label="Zoom in">Zoom in</button>
           <button class="btn" id="lOut" type="button" aria-label="Zoom out">Zoom out</button>
         </div>
       </div>
-      <div id="globeNote" hidden>
+      <div id="globeNote">
         <div class="legend">
           <span><i style="background:var(--vis)"></i>Visible from your yard</span>
           <span><i style="background:var(--lit)"></i>Above you, sky too bright</span>
@@ -473,7 +473,7 @@ var S = {
   viewMs: null, ctx: null, rows: [], trails: [], hits: [],
   selected: null, starOpen: false,
   passes: [], passState: 'idle', passToken: 0, passBase: 0, loaded: false, pasted: false,
-  look: { yaw: 180, pitch: 35, fov: 75, init: false }, selTrack: null, hits3: [], glob: { tab: 'sky', lon0: 0, lat0: 0, k: 1, star: false }, globPts: [], orbit: null, sunEcf: null, obsEcf: null, ghits: []
+  look: { yaw: 180, pitch: 35, fov: 75, init: false }, selTrack: null, hits3: [], glob: { tab: 'globe', lon0: 0, lat0: 0, k: 1, star: false }, globPts: [], orbit: null, sunEcf: null, obsEcf: null, ghits: []
 };
 
 function load(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
@@ -739,7 +739,7 @@ function renderTrains(box) {
     var txt = 'Around ' + Math.round(t.mid.sm.el) + '\u00b0 up toward ' + compass(t.mid.sm.az) + '. ' + headingText(t.mid) + '.';
     if (t.fresh * 2 >= t.members.length) txt += ' Likely a recent launch, still bunched up.';
     d.appendChild(el('div', 'ds', txt));
-    var b = el('button', 'btn', 'Show in Sky 3D');
+    var b = el('button', 'btn', 'Look at it');
     b.type = 'button';
     b.addEventListener('click', function () { S.selected = t.mid.s.id; lookAt(t.mid); S.look.init = true; clampLook(); setTab('look'); });
     d.appendChild(b);
@@ -1088,7 +1088,7 @@ function setTab(t) {
   $('look').hidden = t !== 'look'; $('lookNote').hidden = t !== 'look';
   $('globe').hidden = t !== 'globe'; $('globeNote').hidden = t !== 'globe';
   ['Sky', 'Look', 'Globe'].forEach(function (n) { $('tab' + n).setAttribute('aria-pressed', t === n.toLowerCase() ? 'true' : 'false'); });
-  $('viewhead').textContent = t === 'sky' ? 'Sky chart' : (t === 'look' ? 'Sky in 3D' : 'Globe');
+  $('viewhead').textContent = t === 'sky' ? 'Sky chart' : (t === 'look' ? 'Looking up from your yard' : 'Globe');
   if (t === 'look' && !S.look.init) {
     S.look.init = true;
     var b = S.rows && S.rows[0];

@@ -1330,17 +1330,29 @@ function drawGlobe() {
     e1 = e1l > 1e-6 ? [e1[0] / e1l, e1[1] / e1l, 0] : [1, 0, 0];
     var e2 = [u0[1] * e1[2] - u0[2] * e1[1], u0[2] * e1[0] - u0[0] * e1[2], u0[0] * e1[1] - u0[1] * e1[0]];
     var ringLine = function (lam, dash) {
-      var prev = null; g.save(); g.setLineDash(dash); g.lineWidth = 2; g.strokeStyle = darkHere ? col : C('--fg'); g.globalAlpha = darkHere ? 0.95 : 0.75; g.beginPath();
+      var prev = null, top = null, bot = null; g.save(); g.setLineDash(dash); g.lineWidth = 2; g.strokeStyle = darkHere ? col : C('--fg'); g.globalAlpha = darkHere ? 0.95 : 0.75; g.beginPath();
       for (var ph = 0; ph <= 360; ph += 4) {
         var cp = Math.cos(ph * RAD), sp2 = Math.sin(ph * RAD);
         var pt = P(Math.cos(lam) * u0[0] + Math.sin(lam) * (cp * e1[0] + sp2 * e2[0]), Math.cos(lam) * u0[1] + Math.sin(lam) * (cp * e1[1] + sp2 * e2[1]), Math.cos(lam) * u0[2] + Math.sin(lam) * (cp * e1[2] + sp2 * e2[2]));
         if (prev && prev.d > 0 && pt.d > 0) { g.moveTo(prev.x, prev.y); g.lineTo(pt.x, pt.y); }
+        if (pt.d > 0 && (!top || pt.y < top.y)) top = pt;
+        if (pt.d > 0 && (!bot || pt.y > bot.y)) bot = pt;
         prev = pt;
       }
       g.stroke(); g.restore();
+      return { top: top, bot: bot };
     };
-    ringLine(lam0, [5, 4]); ringLine(lam10, [2, 4]);
-    ringTxt = 'Circle: a satellite ' + Math.round(hKm) + ' km up' + (usedSel ? ' (the one you selected)' : ' (the height of the space station)') + ' is above your horizon only inside the outer circle, and well placed (10° or more up) inside the dotted one. ' +
+    var miles = function (lam) { var mi = Math.round(lam * EARTH * 0.621371 / 10) * 10; return mi.toLocaleString() + ' mi'; };
+    var ringLabel = function (pt, txt, below) {
+      if (!pt) return;
+      var ty = below ? pt.y + 4 : pt.y - 4;
+      g.save(); g.font = '600 11px ' + font; g.textAlign = 'center'; g.textBaseline = below ? 'top' : 'bottom';
+      g.lineWidth = 3; g.lineJoin = 'round'; g.strokeStyle = C('--bg'); g.strokeText(txt, pt.x, ty);
+      g.fillStyle = C('--fg'); g.fillText(txt, pt.x, ty); g.restore();
+    };
+    var rOut = ringLine(lam0, [5, 4]), rIn = ringLine(lam10, [2, 4]);
+    ringLabel(rOut.top, 'Seen from ' + miles(lam0) + ' away', false); ringLabel(rIn.bot, 'Best within ' + miles(lam10), true);
+    ringTxt = 'Circle: a satellite ' + Math.round(hKm) + ' km up' + (usedSel ? ' (the one you selected)' : ' (the height of the space station)') + ' comes over your horizon when it is about ' + miles(lam0) + ' (' + Math.round(lam0 * EARTH).toLocaleString() + ' km) away along the ground, so it can only be seen inside the outer circle, and well placed (10° or more up) inside the dotted one. ' +
       (darkHere ? 'The tint shows where it would also be in sunlight, which is what you need to see it.' : 'It is too bright for naked-eye satellites at your location right now, so there is no tint.');
   }
   var rt = $('ringInfo'); if (rt) rt.textContent = ringTxt;

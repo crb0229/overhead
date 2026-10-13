@@ -67,10 +67,11 @@ header { display: grid; gap: 6px; }
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
 [hidden] { display: none !important; }
-.cardhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.cardhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
 .cardhead h2 { margin: 0; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.seg button { background: transparent; color: var(--muted); border: 0; padding: 6px 14px; font: 600 14px var(--font-ui); cursor: pointer; }
+.seg { flex: 0 0 auto; max-width: 100%; display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { background: transparent; color: var(--muted); border: 0; padding: 8px 14px; white-space: nowrap; font: 600 14px var(--font-ui); cursor: pointer; }
+@media (max-width: 520px) { .seg { width: 100%; } .seg button { flex: 1; padding: 9px 6px; } }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
 #globe, #look { width: 100%; max-width: 520px; aspect-ratio: 1; display: block; margin: 0 auto; touch-action: none; cursor: grab; }
 #sky { width: 100%; max-width: 520px; aspect-ratio: 1; display: block; margin: 0 auto; }
@@ -1329,7 +1330,7 @@ function drawGlobe() {
     e1 = e1l > 1e-6 ? [e1[0] / e1l, e1[1] / e1l, 0] : [1, 0, 0];
     var e2 = [u0[1] * e1[2] - u0[2] * e1[1], u0[2] * e1[0] - u0[0] * e1[2], u0[0] * e1[1] - u0[1] * e1[0]];
     var ringLine = function (lam, dash) {
-      var prev = null; g.save(); g.setLineDash(dash); g.lineWidth = 1.5; g.strokeStyle = darkHere ? col : C('--muted'); g.globalAlpha = 0.9; g.beginPath();
+      var prev = null; g.save(); g.setLineDash(dash); g.lineWidth = 2; g.strokeStyle = darkHere ? col : C('--fg'); g.globalAlpha = darkHere ? 0.95 : 0.75; g.beginPath();
       for (var ph = 0; ph <= 360; ph += 4) {
         var cp = Math.cos(ph * RAD), sp2 = Math.sin(ph * RAD);
         var pt = P(Math.cos(lam) * u0[0] + Math.sin(lam) * (cp * e1[0] + sp2 * e2[0]), Math.cos(lam) * u0[1] + Math.sin(lam) * (cp * e1[1] + sp2 * e2[1]), Math.cos(lam) * u0[2] + Math.sin(lam) * (cp * e1[2] + sp2 * e2[2]));
@@ -1452,7 +1453,7 @@ function setTab(t) {
   $('look').hidden = t !== 'look'; $('lookNote').hidden = t !== 'look';
   $('globe').hidden = t !== 'globe'; $('globeNote').hidden = t !== 'globe';
   ['Sky', 'Look', 'Globe'].forEach(function (n) { $('tab' + n).setAttribute('aria-pressed', t === n.toLowerCase() ? 'true' : 'false'); });
-  $('viewhead').textContent = t === 'sky' ? 'Sky chart' : (t === 'look' ? 'Looking up from your yard' : 'Globe');
+  $('viewhead').textContent = t === 'sky' ? 'Sky chart' : (t === 'look' ? 'Looking up' : 'Globe');
   if (t === 'look' && !S.look.init) {
     S.look.init = true;
     var b = S.rows && S.rows[0];

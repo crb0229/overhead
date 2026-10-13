@@ -231,6 +231,7 @@ details.settings[open] > summary { margin-bottom: 14px; }
         <label class="check" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:10px;font-size:14px;color:var(--muted)"><input id="gStar" type="checkbox"> Show every Starlink satellite</label>
         <label class="check" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:6px;font-size:14px;color:var(--muted)"><input id="gRing" type="checkbox" checked> Show where satellites can be seen from here</label>
         <p id="ringInfo" class="hint"></p>
+        <p id="orbitInfo" class="hint"></p>
       </div>
     </section>
 
@@ -1238,15 +1239,17 @@ function draw() {
 /* ---------- globe ---------- */
 var EARTH = 6371, shadeCv = null;
 
+/* This orbit and the next, as ground tracks: each point is placed on the Earth as it turns underneath. */
 function orbitRing(sat, ctx) {
   var no = sat.satrec.no;
   if (!(no > 0)) return null;
   var per = 2 * Math.PI / no, pts = [];   // minutes
-  for (var i = 0; i <= 90; i++) {
-    var pv = satellite.propagate(sat.satrec, new Date(ctx.ms + i * per / 90 * 60000));
-    if (pv && pv.position) pts.push(satellite.eciToEcf(pv.position, ctx.gmst));
+  for (var i = 0; i <= 180; i++) {
+    var t = ctx.ms + i * per / 90 * 60000, d = new Date(t), pv;
+    try { pv = satellite.propagate(sat.satrec, d); } catch (e) { continue; }
+    if (pv && pv.position) { var e2 = satellite.eciToEcf(pv.position, satellite.gstime(d)); e2.t = t; e2.i = i; pts.push(e2); }
   }
-  return pts.length > 10 ? pts : null;
+  return pts.length > 20 ? pts : null;
 }
 
 function drawGlobe() {
@@ -1382,15 +1385,17 @@ function drawGlobe() {
 
   // orbit of the selected satellite
   if (S.orbit) {
-    g.save(); g.setLineDash([4, 3]); g.lineWidth = 1.5; g.strokeStyle = C('--vis');
+    g.save(); g.lineWidth = 1.5; g.strokeStyle = C('--vis');
     var prev = null;
     S.orbit.forEach(function (e) {
-      var cur = P(e.x / EARTH, e.y / EARTH, e.z / EARTH);
+      var cur = P(e.x / EARTH, e.y / EARTH, e.z / EARTH), second = e.i > 90;
       cur.ok = cur.d > 0 || !onDisc(cur);
-      if (prev && prev.ok && cur.ok) {
-        g.globalAlpha = (prev.d > 0 && cur.d > 0) ? 0.95 : 0.35;
+      if (prev && prev.ok && cur.ok && !(second && prev.second === false)) {
+        g.setLineDash(second ? [2, 5] : [4, 3]);
+        g.globalAlpha = ((prev.d > 0 && cur.d > 0) ? 0.95 : 0.35) * (second ? 0.6 : 1);
         g.beginPath(); g.moveTo(prev.x, prev.y); g.lineTo(cur.x, cur.y); g.stroke();
       }
+      cur.second = second;
       prev = cur;
     });
     g.restore();
@@ -1407,7 +1412,38 @@ function drawGlobe() {
       g.lineTo(m.x + Math.cos(ang - 2.5) * L, m.y + Math.sin(ang - 2.5) * L);
       g.closePath(); g.fill();
     })(3 + q * 6);
+    for (var q2 = 0; q2 < 8; q2++) (function (i) {
+      var p0 = S.orbit[i - 1], p1 = S.orbit[i + 1];
+      if (!p0 || !p1) return;
+      var a = P(p0.x / EARTH, p0.y / EARTH, p0.z / EARTH), b = P(p1.x / EARTH, p1.y / EARTH, p1.z / EARTH);
+      if (a.d <= 0 || b.d <= 0) return;
+      var ang = Math.atan2(b.y - a.y, b.x - a.x), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, L = 5.5;
+      g.globalAlpha = 0.6; g.fillStyle = C('--vis'); g.beginPath();
+      g.moveTo(m.x + Math.cos(ang) * L, m.y + Math.sin(ang) * L);
+      g.lineTo(m.x + Math.cos(ang + 2.5) * L, m.y + Math.sin(ang + 2.5) * L);
+      g.lineTo(m.x + Math.cos(ang - 2.5) * L, m.y + Math.sin(ang - 2.5) * L);
+      g.closePath(); g.fill(); g.globalAlpha = 1;
+    })(93 + q2 * 11);
   }
+
+  // closest approach of this orbit and the next to you
+  var oi = $('orbitInfo'), otxt = '';
+  if (oi && S.orbit && S.obsEcf) {
+    var ol2 = Math.sqrt(S.obsEcf[0] * S.obsEcf[0] + S.obsEcf[1] * S.obsEcf[1] + S.obsEcf[2] * S.obsEcf[2]);
+    var best = [null, null];
+    S.orbit.forEach(function (e) {
+      var en = Math.sqrt(e.x * e.x + e.y * e.y + e.z * e.z);
+      var dd = Math.acos(Math.max(-1, Math.min(1, (e.x * S.obsEcf[0] + e.y * S.obsEcf[1] + e.z * S.obsEcf[2]) / (en * ol2)))), k = e.i > 90 ? 1 : 0;
+      if (!best[k] || dd < best[k].d) best[k] = { d: dd, t: e.t, h: en - EARTH };
+    });
+    var lbl = ['This orbit', 'Next orbit'];
+    otxt = best.map(function (b, k) {
+      if (!b) return '';
+      var lam = Math.acos(EARTH / (EARTH + b.h)), mi = Math.round(b.d * EARTH * 0.621371 / 10) * 10;
+      return lbl[k] + ': closest to you about ' + mi.toLocaleString() + ' mi away at ' + fmtTime(b.t) + (b.d <= lam ? ', inside your horizon circle.' : ', too far to come over your horizon.');
+    }).filter(Boolean).join(' ') + ' Seeing it also needs sunlight on the satellite and a dark sky for you.';
+  }
+  if (oi) oi.textContent = otxt;
 
   // satellites
   S.ghits = [];

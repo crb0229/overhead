@@ -928,7 +928,7 @@ function drawGlobe() {
     });
     g.restore();
     // arrowheads show which way it is travelling (the ring starts at its position now and runs forward in time)
-    [3, 24, 46, 68].forEach(function (i) {
+    for (var q = 0; q < 15; q++) (function (i) {
       var p0 = S.orbit[i - 1], p1 = S.orbit[i + 1];
       if (!p0 || !p1) return;
       var a = P(p0.x / EARTH, p0.y / EARTH, p0.z / EARTH), b = P(p1.x / EARTH, p1.y / EARTH, p1.z / EARTH);
@@ -939,7 +939,7 @@ function drawGlobe() {
       g.lineTo(m.x + Math.cos(ang + 2.5) * L, m.y + Math.sin(ang + 2.5) * L);
       g.lineTo(m.x + Math.cos(ang - 2.5) * L, m.y + Math.sin(ang - 2.5) * L);
       g.closePath(); g.fill();
-    });
+    })(3 + q * 6);
   }
 
   // satellites

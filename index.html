@@ -94,6 +94,10 @@ header { display: grid; gap: 6px; }
 .chip.vis { background: var(--vis); color: var(--vis-ink); border-color: var(--vis); }
 .chip.lit { color: var(--lit); border-color: var(--lit); }
 .more { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+.train { border: 1px solid var(--vis); border-radius: 6px; padding: 8px 10px; margin-top: 8px; display: grid; gap: 4px; }
+.train .nm { font-weight: 600; }
+.train .ds { color: var(--muted); font-size: 13px; }
+.train .btn { justify-self: start; margin-top: 4px; }
 details.group { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
 details.group > summary { cursor: pointer; font-weight: 600; }
 details.group .rows { margin-top: 8px; }
@@ -443,7 +447,7 @@ var HOSTED = true;   // true when published as its own web page with a daily dat
 
 /* Hosted: read the daily copy from the same GitHub repository. Otherwise ask CelesTrak directly. */
 function dataUrls(g) {
-  if (!HOSTED) return [BASE + g];
+  if (!HOSTED) return [BASE + (g === 'last30' ? 'last-30-days' : g)];
   var m = location.hostname.match(/^([^.]+)\.github\.io$/), parts = location.pathname.split('/').filter(Boolean);
   var rel = 'data/' + g + '.tle';
   if (m && parts.length) return ['https://raw.githubusercontent.com/' + m[1] + '/' + parts[0] + '/main/' + rel, rel];
@@ -522,12 +526,23 @@ function loadAll(force) {
   var want = ['stations', 'visual'];
   if (S.opts.starlink) want.push('starlink');
   if (S.opts.all) want.push('active');
+  want.push('last30');   // launches from the last 30 days, so new Starlink batches show up early
   $('dataline').textContent = 'Loading orbit data...';
   return Promise.all(want.map(function (g) {
     return loadGroup(g, force).then(function (v) { return { g: g, v: v }; }, function (e) { return { g: g, err: e }; });
   })).then(function (results) {
     var byId = new Map(), oldest = Infinity, failed = [], stale = false, recent = false, firstErr = null;
+    results.sort(function (a, b) { return (a.g === 'last30') - (b.g === 'last30'); });
     results.forEach(function (r) {
+      if (r.g === 'last30') {
+        if (r.err) return;   // optional list
+        parseTLEs(r.v.text).forEach(function (s) {
+          var have = byId.get(s.id);
+          if (have) { have.recent = true; return; }
+          s.recent = true; s.group = isStarlink(s) ? 'starlink' : 'new'; byId.set(s.id, s);
+        });
+        return;
+      }
       if (r.err) { failed.push(r.g); firstErr = firstErr || r.err; return; }
       oldest = Math.min(oldest, r.v.t);
       if (r.v.src === 'stale') stale = true;
@@ -671,6 +686,7 @@ function rowEl(r) {
   left.appendChild(el('div', 'nm', r.s.name));
   var d = describeSat(r.s.name);
   if (d) left.appendChild(el('div', 'ds', d));
+  if (r.s.recent) left.appendChild(el('div', 'ds', 'Launched in the last 30 days'));
   var hd = headingText(r);
   if (hd) left.appendChild(el('div', 'ds', hd));
   left.appendChild(el('div', 'meta num', Math.round(altitudeKm(r.sm, S.ctx)) + ' km high · ' + Math.round(r.sm.range) + ' km away'));
@@ -689,12 +705,55 @@ function rowEl(r) {
   return wrap;
 }
 
+/* Starlink trains: several visible Starlinks close together in the sky and moving the same way. */
+function findTrains(rows) {
+  var v = rows.filter(function (r) { return isStarlink(r.s) && r.vis && r.nx; }), n = v.length, i, j;
+  var info = v.map(function (r) {
+    var a = r.sm.az * RAD, e = r.sm.el * RAD;
+    var dAz = ((r.nx.az - r.sm.az + 540) % 360) - 180, mx = dAz * Math.cos(e), my = r.nx.el - r.sm.el, m = Math.sqrt(mx * mx + my * my) || 1;
+    return { u: [Math.cos(e) * Math.sin(a), Math.cos(e) * Math.cos(a), Math.sin(e)], m: [mx / m, my / m] };
+  });
+  var par = v.map(function (_, k) { return k; });
+  function find(k) { while (par[k] !== k) { par[k] = par[par[k]]; k = par[k]; } return k; }
+  var cosSep = Math.cos(6 * RAD);
+  for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) {
+    var A = info[i], B = info[j];
+    if (A.u[0] * B.u[0] + A.u[1] * B.u[1] + A.u[2] * B.u[2] < cosSep) continue;
+    if (A.m[0] * B.m[0] + A.m[1] * B.m[1] < 0.82) continue;
+    par[find(i)] = find(j);
+  }
+  var groups = {};
+  v.forEach(function (r, k) { var root = find(k); (groups[root] = groups[root] || []).push(r); });
+  return Object.keys(groups).map(function (k) { return groups[k]; }).filter(function (g) { return g.length >= 4; })
+    .map(function (g) {
+      g.sort(function (a, b) { return b.sm.el - a.sm.el; });
+      var mid = g[Math.floor(g.length / 2)], fresh = g.filter(function (r) { return r.s.recent; }).length;
+      return { members: g, mid: mid, fresh: fresh, lead: g[0] };
+    }).sort(function (a, b) { return b.members.length - a.members.length; });
+}
+
+function renderTrains(box) {
+  findTrains(S.rows).slice(0, 3).forEach(function (t) {
+    var d = el('div', 'train');
+    d.appendChild(el('div', 'nm', 'Starlink train: ' + t.members.length + ' satellites in a line'));
+    var txt = 'Around ' + Math.round(t.mid.sm.el) + '\u00b0 up toward ' + compass(t.mid.sm.az) + '. ' + headingText(t.mid) + '.';
+    if (t.fresh * 2 >= t.members.length) txt += ' Likely a recent launch, still bunched up.';
+    d.appendChild(el('div', 'ds', txt));
+    var b = el('button', 'btn', 'Show in Sky 3D');
+    b.type = 'button';
+    b.addEventListener('click', function () { S.selected = t.mid.s.id; lookAt(t.mid); S.look.init = true; clampLook(); setTab('look'); });
+    d.appendChild(b);
+    box.appendChild(d);
+  });
+}
+
 function renderNow() {
   var box = $('nowList');
   var focusId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : null;
   box.textContent = '';
   var rows = S.rows, vis = rows.filter(function (r) { return r.vis; }).length;
   box.appendChild(el('p', 'more', rows.length + ' above the horizon, ' + vis + ' visible to the eye.'));
+  renderTrains(box);
   var others = rows.filter(function (r) { return !isStarlink(r.s); });
   var stars = rows.filter(function (r) { return isStarlink(r.s); });
   others.slice(0, LIST_CAP).forEach(function (r) { box.appendChild(rowEl(r)); });

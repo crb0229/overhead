@@ -18,8 +18,10 @@ jobs:
       - name: Download orbit data
         run: |
           mkdir -p data
-          for g in stations visual starlink; do
-            url="https://celestrak.org/NORAD/elements/gp.php?GROUP=${g}&FORMAT=tle"
+          for pair in stations:stations visual:visual starlink:starlink last30:last-30-days; do
+            g="${pair%%:*}"
+            name="${pair##*:}"
+            url="https://celestrak.org/NORAD/elements/gp.php?GROUP=${name}&FORMAT=tle"
             if curl --fail --silent --show-error --max-time 90 -o "data/${g}.tmp" "$url" && grep -q '^1 ' "data/${g}.tmp"; then
               mv "data/${g}.tmp" "data/${g}.tle"
             else

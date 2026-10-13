@@ -1,3 +1,4 @@
+# Downloads fresh satellite orbit data once a day.
 name: Update orbit data
 
 on:

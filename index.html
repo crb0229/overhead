@@ -228,6 +228,8 @@ details.settings[open] > summary { margin-bottom: 14px; }
           <button class="btn" id="gOut" type="button" aria-label="Zoom out">Zoom out</button>
         </div>
         <label class="check" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:10px;font-size:14px;color:var(--muted)"><input id="gStar" type="checkbox"> Show every Starlink satellite</label>
+        <label class="check" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:6px;font-size:14px;color:var(--muted)"><input id="gRing" type="checkbox" checked> Show where satellites can be seen from here</label>
+        <p id="ringInfo" class="hint"></p>
       </div>
     </section>
 
@@ -773,7 +775,7 @@ var S = {
   viewMs: null, ctx: null, rows: [], trails: [], hits: [],
   selected: null, starOpen: false,
   passes: [], passState: 'idle', passToken: 0, passBase: 0, loaded: false, pasted: false,
-  filt: { stations: true, constellation: true, navigation: true, weather: true, rocket: true, debris: true, other: true, visOnly: false }, counts: {}, look: { yaw: 180, pitch: 35, fov: 75, init: false, show: { planets: true, stars: true, names: true, lines: false } }, pick: null, skyHits: [], skyKey: '', planets: [], selTrack: null, hits3: [], glob: { tab: 'globe', lon0: 0, lat0: 0, k: 1, star: false }, globPts: [], orbit: null, sunEcf: null, obsEcf: null, ghits: []
+  filt: { stations: true, constellation: true, navigation: true, weather: true, rocket: true, debris: true, other: true, visOnly: false }, counts: {}, look: { yaw: 180, pitch: 35, fov: 75, init: false, show: { planets: true, stars: true, names: true, lines: false } }, pick: null, skyHits: [], skyKey: '', planets: [], selTrack: null, hits3: [], glob: { ring: true, tab: 'globe', lon0: 0, lat0: 0, k: 1, star: false }, globPts: [], orbit: null, sunEcf: null, obsEcf: null, ghits: []
 };
 
 function load(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
@@ -1290,6 +1292,57 @@ function drawGlobe() {
       g.drawImage(shadeCv, cx - R, cy - R, 2 * R, 2 * R);
     }
   }
+  // where a satellite has to be to be seen from here: inside a circle around you, and still in sunlight
+  var ringTxt = '';
+  if (S.glob.ring && S.obsEcf && S.sunEcf && S.ctx) {
+    var hKm = 420, usedSel = false, selp = S.globPts.filter(function (o) { return o.s.id === S.selected; })[0];
+    if (selp) { hKm = Math.sqrt(selp.e.x * selp.e.x + selp.e.y * selp.e.y + selp.e.z * selp.e.z) - EARTH; usedSel = true; }
+    var q0 = EARTH / (EARTH + hKm), lam0 = Math.acos(q0), lam10 = Math.acos(q0 * Math.cos(10 * RAD)) - 10 * RAD;
+    var ol = Math.sqrt(S.obsEcf[0] * S.obsEcf[0] + S.obsEcf[1] * S.obsEcf[1] + S.obsEcf[2] * S.obsEcf[2]);
+    var u0 = [S.obsEcf[0] / ol, S.obsEcf[1] / ol, S.obsEcf[2] / ol];
+    var sl = Math.sqrt(S.sunEcf[0] * S.sunEcf[0] + S.sunEcf[1] * S.sunEcf[1] + S.sunEcf[2] * S.sunEcf[2]);
+    var su2 = [S.sunEcf[0] / sl, S.sunEcf[1] / sl, S.sunEcf[2] / sl];
+    var darkHere = S.ctx.sunEl < -6, hr = 1 + hKm / EARTH, col = C('--vis');
+    var hx = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(col), cr = hx ? [parseInt(hx[1], 16), parseInt(hx[2], 16), parseInt(hx[3], 16)] : [255, 190, 60];
+    if (darkHere) {
+      var NZ = 96;
+      if (!S.zoneCv) { S.zoneCv = document.createElement('canvas'); S.zoneCv.width = NZ; S.zoneCv.height = NZ; }
+      var zg = S.zoneCv.getContext('2d'), zi = zg && zg.createImageData ? zg.createImageData(NZ, NZ) : null;
+      if (zi && zi.data) {
+        var c0 = V(1, 0, 0), c1 = V(0, 1, 0), c2 = V(0, 0, 1), zd = zi.data, cl0 = Math.cos(lam0), cl10 = Math.cos(lam10);
+        for (var jj = 0; jj < NZ; jj++) for (var ii = 0; ii < NZ; ii++) {
+          var uu = (ii + 0.5) / NZ * 2 - 1, vv2 = 1 - (jj + 0.5) / NZ * 2, rr2 = uu * uu + vv2 * vv2, oo = (jj * NZ + ii) * 4, ww = Math.sqrt(Math.max(0, 1 - rr2));
+          zd[oo + 3] = 0;
+          if (rr2 >= 1) continue;
+          var px = ww * c0[0] + uu * c0[1] + vv2 * c0[2], py = ww * c1[0] + uu * c1[1] + vv2 * c1[2], pz = ww * c2[0] + uu * c2[1] + vv2 * c2[2];
+          var cd = px * u0[0] + py * u0[1] + pz * u0[2];
+          if (cd < cl0) continue;
+          var pr = hr * (px * su2[0] + py * su2[1] + pz * su2[2]);
+          if (pr < 0 && hr * hr - pr * pr < 1) continue;   // satellite there would be in Earth's shadow
+          zd[oo] = cr[0]; zd[oo + 1] = cr[1]; zd[oo + 2] = cr[2]; zd[oo + 3] = cd >= cl10 ? 105 : 60;
+        }
+        zg.putImageData(zi, 0, 0);
+        g.imageSmoothingEnabled = true; g.drawImage(S.zoneCv, cx - R, cy - R, 2 * R, 2 * R);
+      }
+    }
+    var e1 = [u0[1], -u0[0], 0], e1l = Math.sqrt(e1[0] * e1[0] + e1[1] * e1[1]);
+    e1 = e1l > 1e-6 ? [e1[0] / e1l, e1[1] / e1l, 0] : [1, 0, 0];
+    var e2 = [u0[1] * e1[2] - u0[2] * e1[1], u0[2] * e1[0] - u0[0] * e1[2], u0[0] * e1[1] - u0[1] * e1[0]];
+    var ringLine = function (lam, dash) {
+      var prev = null; g.save(); g.setLineDash(dash); g.lineWidth = 1.5; g.strokeStyle = darkHere ? col : C('--muted'); g.globalAlpha = 0.9; g.beginPath();
+      for (var ph = 0; ph <= 360; ph += 4) {
+        var cp = Math.cos(ph * RAD), sp2 = Math.sin(ph * RAD);
+        var pt = P(Math.cos(lam) * u0[0] + Math.sin(lam) * (cp * e1[0] + sp2 * e2[0]), Math.cos(lam) * u0[1] + Math.sin(lam) * (cp * e1[1] + sp2 * e2[1]), Math.cos(lam) * u0[2] + Math.sin(lam) * (cp * e1[2] + sp2 * e2[2]));
+        if (prev && prev.d > 0 && pt.d > 0) { g.moveTo(prev.x, prev.y); g.lineTo(pt.x, pt.y); }
+        prev = pt;
+      }
+      g.stroke(); g.restore();
+    };
+    ringLine(lam0, [5, 4]); ringLine(lam10, [2, 4]);
+    ringTxt = 'Circle: a satellite ' + Math.round(hKm) + ' km up' + (usedSel ? ' (the one you selected)' : ' (the height of the space station)') + ' is above your horizon only inside the outer circle, and well placed (10° or more up) inside the dotted one. ' +
+      (darkHere ? 'The tint shows where it would also be in sunlight, which is what you need to see it.' : 'It is too bright for naked-eye satellites at your location right now, so there is no tint.');
+  }
+  var rt = $('ringInfo'); if (rt) rt.textContent = ringTxt;
   g.lineWidth = 1; g.strokeStyle = C('--line'); g.beginPath(); g.arc(cx, cy, R, 0, 6.2832); g.stroke();
 
   // graticule and coastlines, front side only
@@ -1462,6 +1515,9 @@ function pickAt(hits, x, y) {
   $('gIn').addEventListener('click', function () { S.glob.k *= 1.25; clampGlobe(); drawGlobe(); });
   $('gOut').addEventListener('click', function () { S.glob.k /= 1.25; clampGlobe(); drawGlobe(); });
   $('gStar').addEventListener('change', function () { S.glob.star = $('gStar').checked; recompute(); });
+  var rs = load('wo:ring'); if (rs && typeof rs.on === 'boolean') S.glob.ring = rs.on;
+  $('gRing').checked = S.glob.ring;
+  $('gRing').addEventListener('change', function () { S.glob.ring = $('gRing').checked; save('wo:ring', { on: S.glob.ring }); drawGlobe(); });
 })();
 
 

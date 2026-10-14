@@ -181,6 +181,7 @@ details.settings[open] > summary { margin-bottom: 14px; }
           <button class="btn" id="fAll" type="button">Show everything</button>
           <button class="btn" id="fNoStar" type="button">Hide Starlink</button>
         </div>
+        <p class="hint">Shapes: cross with panels = space station or Hubble, triangle = rocket body, x = debris, diamond = navigation, square = weather, dot = everything else.</p>
         <p class="hint">Types are judged from catalog names, so a few will land in the wrong group. Debris is rarely visible to the eye, so this page loads only the brighter objects.</p>
       </details>
       <canvas id="sky" hidden role="img" aria-label="Chart of satellites above the horizon, centered on straight up"></canvas>
@@ -206,9 +207,14 @@ details.settings[open] > summary { margin-bottom: 14px; }
           <label><input type="checkbox" id="lkStars" checked> Bright stars</label>
           <label><input type="checkbox" id="lkNames" checked> Star names</label>
           <label><input type="checkbox" id="lkLines"> Constellation lines</label>
+          <label><input type="checkbox" id="lkMilky" checked> Milky Way</label>
         </div>
+        <p id="motionMsg" class="hint" hidden></p>
         <div class="infobox"><canvas id="lookPic" width="160" height="160" style="width:80px;height:80px" hidden aria-hidden="true"></canvas><p id="lookInfo" class="hint"></p></div>
         <div class="btnrow" style="justify-content:center;margin-top:10px">
+          <button class="btn" id="lMotion" type="button">Point phone at sky</button>
+          <button class="btn" id="lAlign" type="button" hidden>Align</button>
+          <button class="btn" id="lAlignReset" type="button" hidden>Reset alignment</button>
           <button class="btn" id="lFind" type="button">Look at one</button>
           <button class="btn" id="lUp" type="button">Straight up</button>
           <button class="btn" id="lIn" type="button" aria-label="Zoom in">Zoom in</button>
@@ -777,7 +783,7 @@ var S = {
   viewMs: null, ctx: null, rows: [], trails: [], hits: [],
   selected: null, starOpen: false,
   passes: [], passState: 'idle', passToken: 0, passBase: 0, loaded: false, pasted: false,
-  filt: { stations: true, constellation: true, navigation: true, weather: true, rocket: true, debris: true, other: true, visOnly: false }, counts: {}, look: { yaw: 180, pitch: 35, fov: 75, init: false, show: { planets: true, stars: true, names: true, lines: false } }, pick: null, skyHits: [], skyKey: '', planets: [], selTrack: null, hits3: [], glob: { ring: true, tab: 'globe', lon0: 0, lat0: 0, k: 1, star: false }, globPts: [], orbit: null, sunEcf: null, obsEcf: null, ghits: []
+  filt: { stations: true, constellation: true, navigation: true, weather: true, rocket: true, debris: true, other: true, visOnly: false }, counts: {}, look: { yaw: 180, pitch: 35, fov: 75, init: false, show: { planets: true, stars: true, names: true, lines: false, milky: true } }, pick: null, skyHits: [], skyKey: '', planets: [], selTrack: null, hits3: [], motion: { on: false, f: null, r: null, u: null, got: false, raf: 0 }, decl: 0, glob: { ring: true, tab: 'globe', lon0: 0, lat0: 0, k: 1, star: false }, globPts: [], orbit: null, sunEcf: null, obsEcf: null, ghits: []
 };
 
 function load(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
@@ -785,6 +791,21 @@ function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return t
 function observer() { return makeObserver(S.lat, S.lon, S.alt); }
 function isStarlink(s) { return /^STARLINK/i.test(s.name); }
 function catOf(s) { if (!s.cat) s.cat = categorize(s.name); return s.cat; }
+// marker shape by kind: station = cross with panels, rocket body = triangle, debris = x, navigation = diamond, weather = square, else dot
+function mark(g, s, x, y, r) {
+  var c = catOf(s);
+  g.beginPath();
+  if (c === 'stations') {
+    var a = r * 1.9, b = r * 0.8;
+    g.rect(x - a, y - b * 0.45, a * 2, b * 0.9); g.rect(x - b * 0.45, y - a, b * 0.9, a * 2); g.rect(x - a, y - b, b, b * 2); g.rect(x + a - b, y - b, b, b * 2);
+    g.fill(); return;
+  }
+  if (c === 'rocket') { g.moveTo(x, y - r * 1.4); g.lineTo(x + r * 1.3, y + r); g.lineTo(x - r * 1.3, y + r); g.closePath(); g.fill(); return; }
+  if (c === 'debris') { var d = r * 0.95; g.moveTo(x - d, y - d); g.lineTo(x + d, y + d); g.moveTo(x + d, y - d); g.lineTo(x - d, y + d); g.lineWidth = Math.max(1.4, r * 0.6); g.strokeStyle = g.fillStyle; g.stroke(); return; }
+  if (c === 'navigation') { g.moveTo(x, y - r * 1.35); g.lineTo(x + r * 1.35, y); g.lineTo(x, y + r * 1.35); g.lineTo(x - r * 1.35, y); g.closePath(); g.fill(); return; }
+  if (c === 'weather') { g.rect(x - r * 1.05, y - r * 1.05, r * 2.1, r * 2.1); g.fill(); return; }
+  g.arc(x, y, r, 0, 6.2832); g.fill();
+}
 function allowed(cat) { return cat === 'starlink' ? S.opts.starlink : S.filt[cat] !== false; }
 function pad(n) { return n < 10 ? '0' + n : '' + n; }
 function fmtTime(ms) { return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
@@ -1213,7 +1234,7 @@ function draw() {
     var p = xy(r.sm.az, r.sm.el);
     g.fillStyle = r.sm.sunlit ? C('--lit') : C('--dim');
     g.globalAlpha = r.sm.sunlit ? 0.8 : 0.6;
-    g.beginPath(); g.arc(p[0], p[1], 3.2, 0, 6.2832); g.fill(); g.globalAlpha = 1;
+    mark(g, r.s, p[0], p[1], 3.2); g.globalAlpha = 1;
     dirArrow(r, p, 3.2, r.sm.sunlit ? C('--lit') : C('--muted'));
     S.hits.push({ x: p[0], y: p[1], id: r.s.id });
   });
@@ -1222,7 +1243,7 @@ function draw() {
     var p = xy(r.sm.az, r.sm.el), sel = r.s.id === S.selected;
     g.fillStyle = C('--vis'); g.globalAlpha = 0.22;
     g.beginPath(); g.arc(p[0], p[1], sel ? 11 : 8, 0, 6.2832); g.fill(); g.globalAlpha = 1;
-    g.beginPath(); g.arc(p[0], p[1], sel ? 5 : 3.6, 0, 6.2832); g.fill();
+    mark(g, r.s, p[0], p[1], sel ? 5 : 3.6);
     dirArrow(r, p, sel ? 5 : 3.6, C('--vis'));
     S.hits.push({ x: p[0], y: p[1], id: r.s.id });
     if (!isStarlink(r.s) || sel) lab.push({ p: p, name: r.s.name, sel: sel });
@@ -1252,6 +1273,38 @@ function orbitRing(sat, ctx) {
   return pts.length > 20 ? pts : null;
 }
 
+
+/* Land rings as unit vectors, with long edges split so they follow the curve of the Earth. */
+var landRings = null;
+function getLandRings() {
+  if (landRings) return landRings;
+  landRings = COAST.map(function (ring) {
+    var out = [], prev = null;
+    for (var k = 0; k < ring.length; k += 2) {
+      var v = llToVec(ring[k], ring[k + 1]);
+      if (prev) {
+        var dot = Math.max(-1, Math.min(1, prev[0] * v[0] + prev[1] * v[1] + prev[2] * v[2])), ang = Math.acos(dot) * DEG, n = Math.min(30, Math.ceil(ang / 3));
+        for (var j = 1; j < n; j++) {
+          var t = j / n, w = [prev[0] + (v[0] - prev[0]) * t, prev[1] + (v[1] - prev[1]) * t, prev[2] + (v[2] - prev[2]) * t], l = Math.sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]) || 1;
+          out.push([w[0] / l, w[1] / l, w[2] / l]);
+        }
+      }
+      out.push(v); prev = v;
+    }
+    return out;
+  });
+  return landRings;
+}
+function globePalette() {
+  var mode = document.documentElement.dataset.mode;
+  var bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(bg), lum = m ? parseInt(m[1], 16) + parseInt(m[2], 16) + parseInt(m[3], 16) : 0;
+  if (mode === 'red') return { dark: true, ocean0: '#3d1410', ocean1: '#1d0705', land: '#6e2c22', coast: 'rgba(255,150,130,0.5)', glow: '255,90,70', stars: true };
+  if (lum > 450) return { dark: false, ocean0: '#c6e1f5', ocean1: '#8fbde2', land: '#dfe9c8', coast: 'rgba(80,105,130,0.7)', glow: '110,170,235', stars: false };
+  return { dark: true, ocean0: '#2f74a8', ocean1: '#123a64', land: '#4d7550', coast: 'rgba(215,235,255,0.5)', glow: '110,175,255', stars: true };
+}
+var BGSTARS = (function () { var a = [], x = 12345; function rnd() { x = (x * 1664525 + 1013904223) % 4294967296; return x / 4294967296; } for (var i = 0; i < 160; i++) a.push([rnd(), rnd(), 0.3 + rnd() * 0.6, 0.5 + rnd() * 1.0]); return a; })();
+
 function drawGlobe() {
   if (S.glob.tab !== 'globe') return;
   var cv = $('globe'), size = cv.clientWidth;
@@ -1269,7 +1322,35 @@ function drawGlobe() {
   function P(x, y, z) { var q = V(x, y, z); return { d: q[0], x: cx + q[1] * R, y: cy - q[2] * R }; }
   function onDisc(p) { return (p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy) < R * R; }
 
-  g.fillStyle = C('--bg'); g.beginPath(); g.arc(cx, cy, R, 0, 6.2832); g.fill();
+  var PAL = globePalette();
+  if (PAL.stars) {
+    BGSTARS.forEach(function (st) {
+      var sx = st[0] * size, sy = st[1] * size;
+      if ((sx - cx) * (sx - cx) + (sy - cy) * (sy - cy) < R * R * 1.15) return;
+      g.globalAlpha = st[2]; g.fillStyle = '#ffffff'; g.beginPath(); g.arc(sx, sy, st[3], 0, 6.2832); g.fill();
+    });
+    g.globalAlpha = 1;
+  }
+  var gl = g.createRadialGradient(cx, cy, R * 0.97, cx, cy, R * 1.1);
+  gl.addColorStop(0, 'rgba(' + PAL.glow + ',' + (PAL.dark ? 0.45 : 0.55) + ')'); gl.addColorStop(1, 'rgba(' + PAL.glow + ',0)');
+  g.fillStyle = gl; g.beginPath(); g.arc(cx, cy, R * 1.1, 0, 6.2832); g.fill();
+  var og = g.createRadialGradient(cx - R * 0.3, cy - R * 0.35, R * 0.1, cx, cy, R);
+  og.addColorStop(0, PAL.ocean0); og.addColorStop(1, PAL.ocean1);
+  g.fillStyle = og; g.beginPath(); g.arc(cx, cy, R, 0, 6.2832); g.fill();
+  // land: points on the far side are pushed to the edge of the disc so shapes that wrap around the limb still fill
+  g.fillStyle = PAL.land;
+  getLandRings().forEach(function (ring) {
+    var any = false, pts = ring.map(function (v) {
+      var p = P(v[0], v[1], v[2]);
+      if (p.d > 0) { any = true; return [p.x, p.y]; }
+      var dx = p.x - cx, dy = p.y - cy, L = Math.sqrt(dx * dx + dy * dy) || 1;
+      return [cx + dx / L * R, cy + dy / L * R];
+    });
+    if (!any) return;
+    g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+    for (var i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+    g.closePath(); g.fill();
+  });
 
   // night side: shade a small image pixel by pixel, then scale it onto the disc
   if (S.sunEcf) {
@@ -1287,8 +1368,7 @@ function drawGlobe() {
           if (r2 >= 1) { d[o + 3] = 0; continue; }
           var dot = Math.sqrt(1 - r2) * sv[0] + u * sv[1] + v * sv[2];
           var a = dot > 0.08 ? 0 : (dot < -0.12 ? 1 : (0.08 - dot) / 0.2);
-          if (darkTheme) { d[o] = acc[0]; d[o + 1] = acc[1]; d[o + 2] = acc[2]; d[o + 3] = Math.round((1 - a) * 80); }
-          else { d[o] = 4; d[o + 1] = 8; d[o + 2] = 22; d[o + 3] = Math.round(a * 160); }
+          d[o] = 2; d[o + 1] = 5; d[o + 2] = 16; d[o + 3] = Math.round(a * 175);
         }
       }
       sg.putImageData(img, 0, 0);
@@ -1370,12 +1450,12 @@ function drawGlobe() {
       prev = cur;
     }
   }
-  g.beginPath();
+  g.globalAlpha = 0.45; g.beginPath();
   var lat, lon, pts, vv;
   for (lat = -60; lat <= 60; lat += 30) { pts = []; for (lon = -180; lon <= 180; lon += 6) { vv = llToVec(lon, lat); pts.push(P(vv[0], vv[1], vv[2])); } line(pts); }
   for (lon = -180; lon < 180; lon += 30) { pts = []; for (lat = -90; lat <= 90; lat += 6) { vv = llToVec(lon, lat); pts.push(P(vv[0], vv[1], vv[2])); } line(pts); }
   g.stroke();
-  g.strokeStyle = C('--muted'); g.globalAlpha = 0.95; g.beginPath();
+  g.globalAlpha = 1; g.strokeStyle = PAL.coast; g.lineWidth = 1; g.beginPath();
   for (var ri = 0; ri < COAST.length; ri++) {
     var ring = COAST[ri]; pts = [];
     for (var k = 0; k < ring.length; k += 2) { vv = llToVec(ring[k], ring[k + 1]); pts.push(P(vv[0], vv[1], vv[2])); }
@@ -1465,7 +1545,7 @@ function drawGlobe() {
       var r = small ? 1.3 : L.r;
       g.fillStyle = C(L.c);
       if (it.o.st === 'vis') { g.globalAlpha = 0.25; g.beginPath(); g.arc(it.p.x, it.p.y, r + 4, 0, 6.2832); g.fill(); }
-      g.globalAlpha = L.a; g.beginPath(); g.arc(it.p.x, it.p.y, sel ? r + 2 : r, 0, 6.2832); g.fill(); g.globalAlpha = 1;
+      g.globalAlpha = L.a; mark(g, it.o.s, it.p.x, it.p.y, sel ? r + 2 : r); g.globalAlpha = 1;
       if (sel) { g.strokeStyle = C('--fg'); g.lineWidth = 1.5; g.beginPath(); g.arc(it.p.x, it.p.y, r + 5, 0, 6.2832); g.stroke(); }
       S.ghits.push({ x: it.p.x, y: it.p.y, id: it.o.s.id });
       if (sel || /^(ISS|CSS|TIANHE)\b/i.test(it.o.s.name)) labels.push(it);
@@ -1656,8 +1736,10 @@ function drawLook() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, size, size);
   var css = getComputedStyle(document.documentElement);
-  var C = function (n) { return css.getPropertyValue(n).trim(); };
-  var font = C('--font-ui') || 'sans-serif';
+  var redMode = document.documentElement.dataset.mode === 'red';
+  var NIGHT = { '--fg': '#e3eaf5', '--muted': '#9fb0c8', '--line': '#2c3b57', '--bg': '#0a0e16', '--panel': '#111826', '--vis': '#ffd166', '--lit': '#6ea8ff', '--dim': '#6a7893' };
+  var C = function (n) { return (!redMode && NIGHT[n]) || css.getPropertyValue(n).trim(); };
+  var font = css.getPropertyValue('--font-ui').trim() || 'sans-serif';
   g.fillStyle = C('--bg'); g.fillRect(0, 0, size, size);
   S.hits3 = [];
   if (!S.hasLoc || !S.ctx) return;
@@ -1666,12 +1748,74 @@ function drawLook() {
   var f = [Math.cos(p) * Math.sin(y), Math.cos(p) * Math.cos(y), Math.sin(p)];
   var r = [Math.cos(y), -Math.sin(y), 0];
   var up = [-Math.sin(p) * Math.sin(y), -Math.sin(p) * Math.cos(y), Math.cos(p)];
+  if (S.motion.on && S.motion.f) {
+    // phone mode: the view follows the phone. The offset turns the compass from magnetic north to true north.
+    var dcs = Math.cos(S.decl * RAD), dsn = Math.sin(S.decl * RAD);
+    var rz = function (v) { return [v[0] * dcs + v[1] * dsn, -v[0] * dsn + v[1] * dcs, v[2]]; };
+    f = rz(S.motion.f); r = rz(S.motion.r); up = rz(S.motion.u);
+    L.yaw = (Math.atan2(f[0], f[1]) * DEG + 360) % 360; L.pitch = Math.asin(Math.max(-1, Math.min(1, f[2]))) * DEG;
+  }
   var F = (size / 2) / Math.tan(L.fov * RAD / 2);
   function PJ(az, el) {
     var a = az * RAD, e = el * RAD, ce = Math.cos(e), v0 = ce * Math.sin(a), v1 = ce * Math.cos(a), v2 = Math.sin(e);
     var z = v0 * f[0] + v1 * f[1] + v2 * f[2];
     if (z <= 0.05) return { ok: false };
-    return { ok: true, x: cx + (v0 * r[0] + v1 * r[1]) / z * F, y: cy - (v0 * up[0] + v1 * up[1] + v2 * up[2]) / z * F };
+    return { ok: true, x: cx + (v0 * r[0] + v1 * r[1] + v2 * r[2]) / z * F, y: cy - (v0 * up[0] + v1 * up[1] + v2 * up[2]) / z * F };
+  }
+
+  // sky colour follows the Sun: blue by day, orange glow at sunset, black when fully dark
+  var sunEl = S.ctx.sunEl, sunAz = S.ctx.sunAz;
+  var SKY = [[10, [86, 150, 226], [176, 212, 242]], [0, [60, 100, 175], [236, 160, 110]], [-6, [22, 38, 88], [118, 84, 110]], [-12, [9, 15, 38], [32, 36, 72]], [-18, [6, 9, 20], [12, 16, 30]], [-30, [5, 8, 16], [8, 11, 22]]];
+  var zc, hc, k0 = 0;
+  if (sunEl >= SKY[0][0]) { zc = SKY[0][1]; hc = SKY[0][2]; }
+  else if (sunEl <= SKY[SKY.length - 1][0]) { zc = SKY[SKY.length - 1][1]; hc = SKY[SKY.length - 1][2]; }
+  else {
+    while (sunEl < SKY[k0 + 1][0]) k0++;
+    var tt = (SKY[k0][0] - sunEl) / (SKY[k0][0] - SKY[k0 + 1][0]);
+    var mix = function (a, b) { return [a[0] + (b[0] - a[0]) * tt, a[1] + (b[1] - a[1]) * tt, a[2] + (b[2] - a[2]) * tt]; };
+    zc = mix(SKY[k0][1], SKY[k0 + 1][1]); hc = mix(SKY[k0][2], SKY[k0 + 1][2]);
+  }
+  var toRed = function (c) { var l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]; return [Math.min(255, l * 1.5), l * 0.2, l * 0.15]; };
+  if (redMode) { zc = toRed(zc); hc = toRed(hc); }
+  var rgbs = function (c) { return 'rgb(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ')'; };
+  var starFade = Math.max(0, Math.min(1, (-sunEl - 4) / 10));
+  var pa = PJ(L.yaw, 3), pb = PJ(L.yaw, 55);
+  if (pa.ok && pb.ok && (pa.x !== pb.x || pa.y !== pb.y)) {
+    var sg2 = g.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
+    sg2.addColorStop(0, rgbs(hc)); sg2.addColorStop(1, rgbs(zc)); g.fillStyle = sg2;
+  } else g.fillStyle = rgbs(zc);
+  g.fillRect(0, 0, size, size);
+  if (sunEl > -14) {
+    var sp = PJ(sunAz, sunEl);
+    if (sp.ok) {
+      var ga = Math.max(0, Math.min(1, (sunEl + 14) / 14)) * (redMode ? 0.35 : 0.55), rg = g.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, size * 0.7);
+      rg.addColorStop(0, 'rgba(' + (redMode ? '255,90,60' : '255,175,100') + ',' + ga + ')'); rg.addColorStop(1, 'rgba(255,140,80,0)');
+      g.fillStyle = rg; g.fillRect(0, 0, size, size);
+      if (sunEl > 0) { g.fillStyle = redMode ? '#ff8a73' : '#fff3c4'; g.beginPath(); g.arc(sp.x, sp.y, 9, 0, 6.2832); g.fill(); g.fillStyle = C('--fg'); g.font = '12px ' + font; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('Sun', sp.x + 14, sp.y); }
+    }
+  }
+  // the Milky Way: a soft band along the galactic plane, brightest toward the centre of the galaxy
+  if (L.show.milky && starFade > 0.05) {
+    skyFrame();
+    var ngpH = eqToHor(192.859, 27.128), gcH = eqToHor(266.405, -28.936);
+    var tv = function (h2) { var a = h2.az * RAD, e = h2.el * RAD; return [Math.cos(e) * Math.sin(a), Math.cos(e) * Math.cos(a), Math.sin(e)]; };
+    var ngp = tv(ngpH), gcv = tv(gcH), NM = 72;
+    if (!S.mwCv) { S.mwCv = document.createElement('canvas'); S.mwCv.width = NM; S.mwCv.height = NM; }
+    var mg = S.mwCv.getContext('2d'), mi = mg && mg.createImageData ? mg.createImageData(NM, NM) : null;
+    if (mi && mi.data) {
+      var md = mi.data;
+      for (var yy = 0; yy < NM; yy++) for (var xx = 0; xx < NM; xx++) {
+        var sxp = (xx + 0.5) / NM * size, syp = (yy + 0.5) / NM * size, aa = (sxp - cx) / F, bb = -(syp - cy) / F;
+        var vx = f[0] + aa * r[0] + bb * up[0], vy = f[1] + aa * r[1] + bb * up[1], vz = f[2] + aa * r[2] + bb * up[2], vl = Math.sqrt(vx * vx + vy * vy + vz * vz);
+        vx /= vl; vy /= vl; vz /= vl;
+        var oo2 = (yy * NM + xx) * 4, sb = vx * ngp[0] + vy * ngp[1] + vz * ngp[2], bdeg = Math.asin(Math.max(-1, Math.min(1, sb))) * DEG;
+        var cg2 = Math.acos(Math.max(-1, Math.min(1, vx * gcv[0] + vy * gcv[1] + vz * gcv[2]))) * DEG;
+        var inten = Math.exp(-(bdeg / 11) * (bdeg / 11)) * (0.4 + 0.6 * Math.exp(-(cg2 / 55) * (cg2 / 55)));
+        md[oo2] = redMode ? 255 : 196; md[oo2 + 1] = redMode ? 120 : 208; md[oo2 + 2] = redMode ? 100 : 240; md[oo2 + 3] = vz < -0.02 ? 0 : Math.round(inten * 105 * starFade);
+      }
+      mg.putImageData(mi, 0, 0);
+      g.imageSmoothingEnabled = true; g.drawImage(S.mwCv, 0, 0, size, size);
+    }
   }
 
   // stars and constellation lines (the ground is drawn over anything below the horizon)
@@ -1690,7 +1834,7 @@ function drawLook() {
     });
     g.stroke();
   }
-  if (sh.stars) {
+  if (sh.stars && starFade > 0.03) {
     var nameMag = L.fov > 90 ? 1.5 : (L.fov > 60 ? 2.0 : (L.fov > 40 ? 2.5 : 3.0));
     g.font = '11px ' + font; g.textBaseline = 'middle'; g.textAlign = 'left';
     STARS.forEach(function (st) {
@@ -1698,25 +1842,30 @@ function drawLook() {
       if (hs.el < 0) return;
       var c3 = PJ(hs.az, hs.el);
       if (!c3.ok || c3.x < -10 || c3.y < -10 || c3.x > size + 10 || c3.y > size + 10) return;
-      g.globalAlpha = Math.max(0.4, Math.min(1, 1.15 - st[2] * 0.18));
+      g.globalAlpha = Math.max(0.4, Math.min(1, 1.15 - st[2] * 0.18)) * starFade;
       g.fillStyle = C('--fg'); g.beginPath(); g.arc(c3.x, c3.y, Math.max(0.8, 2.6 - st[2] * 0.5), 0, 6.2832); g.fill();
       g.globalAlpha = 1;
       if (st[3]) {
-        S.skyHits.push({ x: c3.x, y: c3.y, key: 'star:' + st[3] });
+        S.skyHits.push({ x: c3.x, y: c3.y, key: 'star:' + st[3], name: st[3], az: hs.az, el: hs.el });
         info['star:' + st[3]] = st[3] + ': ' + Math.round(hs.el) + '\u00b0 up toward ' + compass(hs.az) + '. A star, ' + magWords(st[2]) + '.';
         if (sh.names && st[2] <= nameMag) { g.fillStyle = C('--muted'); g.fillText(st[3], c3.x + 6, c3.y - 6); }
       }
     });
   }
 
-  // ground: everything below the horizon line
+  // ground: a simple rolling horizon with tree tops (not your real skyline)
   var az, hz = [];
-  for (az = 0; az < 360; az += 2) { var hp = PJ(az, 0); if (hp.ok) hz.push(hp); }
+  var skyline = function (a) { var h = 1.3 + 0.9 * Math.sin(a * 0.053 + 1) + 0.6 * Math.sin(a * 0.127 + 2) + 1.2 * Math.pow(Math.abs(Math.sin(a * 0.31 + 0.5)), 3) + 0.5 * Math.sin(a * 0.71); return Math.max(0.3, h); };
+  for (az = 0; az < 360; az += 1) { var hp = PJ(az, skyline(az)); if (hp.ok) hz.push(hp); }
   if (hz.length > 1) {
-    hz.sort(function (a, b) { return a.x - b.x; });
-    g.fillStyle = C('--panel'); g.beginPath(); g.moveTo(hz[0].x, hz[0].y);
+    var dxn = -r[2], dyn = up[2], dl = Math.sqrt(dxn * dxn + dyn * dyn) || 1;
+    dxn /= dl; dyn /= dl;   // which way is down on the screen
+    hz.sort(function (a, b) { return (a.x * dyn - a.y * dxn) - (b.x * dyn - b.y * dxn); });
+    var gcol = [Math.max(6, hc[0] * 0.16), Math.max(8, hc[1] * 0.16), Math.max(10, hc[2] * 0.16)];
+    g.fillStyle = rgbs(gcol); g.beginPath(); g.moveTo(hz[0].x, hz[0].y);
     hz.forEach(function (q) { g.lineTo(q.x, q.y); });
-    g.lineTo(hz[hz.length - 1].x, size + 2000); g.lineTo(hz[0].x, size + 2000); g.closePath(); g.fill();
+    var lq = hz[hz.length - 1];
+    g.lineTo(lq.x + dxn * 4000, lq.y + dyn * 4000); g.lineTo(hz[0].x + dxn * 4000, hz[0].y + dyn * 4000); g.closePath(); g.fill();
   }
   // guide circles at 30 and 60 degrees, and the horizon
   function ring(el, col, w) {
@@ -1730,7 +1879,6 @@ function drawLook() {
     g.stroke();
   }
   g.setLineDash([2, 4]); ring(30, C('--line'), 1); ring(60, C('--line'), 1); g.setLineDash([]);
-  ring(0, C('--muted'), 1.5);
   g.font = '12px ' + font; g.fillStyle = C('--muted'); g.textAlign = 'left'; g.textBaseline = 'middle';
   [30, 60].forEach(function (el) { var c = PJ(L.yaw, el); if (c.ok) g.fillText(el + '°', c.x + 6, c.y - 8); });
   var zen = PJ(0, 90);
@@ -1766,7 +1914,7 @@ function drawLook() {
       }
       g.lineWidth = 3; g.strokeStyle = C('--bg'); g.strokeText(pl.name, c4.x + rr + 5, c4.y);
       g.fillStyle = C('--fg'); g.fillText(pl.name, c4.x + rr + 5, c4.y);
-      S.skyHits.push({ x: c4.x, y: c4.y, key: 'pl:' + pl.name });
+      S.skyHits.push({ x: c4.x, y: c4.y, key: 'pl:' + pl.name, name: pl.name, az: pl.az, el: pl.el });
       info['pl:' + pl.name] = moon
         ? 'Moon: ' + Math.round(pl.el) + '\u00b0 up toward ' + compass(pl.az) + '. About ' + Math.round(pl.lit * 100) + '% lit, ' + (pl.waxing ? 'growing' : 'shrinking') + '.'
         : pl.name + ': ' + Math.round(pl.el) + '\u00b0 up toward ' + compass(pl.az) + '. A planet, ' + magWords(pl.mag) + '.';
@@ -1815,7 +1963,7 @@ function drawLook() {
     var sel = rw.s.id === S.selected, small = isStarlink(rw.s) && !rw.vis, rad = rw.vis ? 5 : (small ? 2.5 : 3.8);
     g.fillStyle = C(stateCol(rw));
     if (rw.vis) { g.globalAlpha = 0.25; g.beginPath(); g.arc(pt.x, pt.y, rad + 5, 0, 6.2832); g.fill(); }
-    g.globalAlpha = 1; g.beginPath(); g.arc(pt.x, pt.y, sel ? rad + 1.5 : rad, 0, 6.2832); g.fill();
+    g.globalAlpha = 1; mark(g, rw.s, pt.x, pt.y, sel ? rad + 1.5 : rad);
     if (sel) { g.strokeStyle = C('--fg'); g.lineWidth = 1.5; g.beginPath(); g.arc(pt.x, pt.y, rad + 6, 0, 6.2832); g.stroke(); }
     S.hits3.push({ x: pt.x, y: pt.y, id: rw.s.id });
     if (sel || /^(ISS|CSS|TIANHE)\b/i.test(rw.s.name) || (rw.vis && !isStarlink(rw.s))) labels.push({ rw: rw, p: pt });
@@ -1828,6 +1976,10 @@ function drawLook() {
     g.fillStyle = C('--fg'); g.fillText(nm, it.p.x + (right ? 10 : -10), it.p.y - 10);
   });
 
+  if (S.motion.on) {
+    g.save(); g.strokeStyle = C('--fg'); g.globalAlpha = 0.7; g.lineWidth = 1.5; g.beginPath();
+    g.moveTo(cx - 14, cy); g.lineTo(cx - 5, cy); g.moveTo(cx + 5, cy); g.lineTo(cx + 14, cy); g.moveTo(cx, cy - 14); g.lineTo(cx, cy - 5); g.moveTo(cx, cy + 5); g.lineTo(cx, cy + 14); g.stroke(); g.restore();
+  }
   // facing readout
   g.textAlign = 'left'; g.fillStyle = C('--muted'); g.font = '12px ' + font;
   g.fillText('Facing ' + compass(L.yaw) + ', tilted ' + Math.round(L.pitch) + '° up', 10, 14);
@@ -1862,6 +2014,7 @@ function clampLook() {
     if (!ptrs[e.pointerId] || !st) return;
     var old = ptrs[e.pointerId], dx = e.clientX - old.x, dy = e.clientY - old.y;
     ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (S.motion.on && count() < 2) { if (Math.abs(dx) + Math.abs(dy) > 2) st.moved = true; return; }
     if (count() >= 2) {
       var d = dist();
       if (st.d > 0) S.look.fov /= d / st.d;
@@ -1891,8 +2044,8 @@ function clampLook() {
   cv.addEventListener('wheel', function (e) { e.preventDefault(); S.look.fov *= e.deltaY < 0 ? 0.9 : 1.1; clampLook(); drawLook(); }, { passive: false });
   $('tabLook').addEventListener('click', function () { setTab('look'); });
   var saved = load('wo:look');
-  if (saved) ['planets', 'stars', 'names', 'lines'].forEach(function (k) { if (typeof saved[k] === 'boolean') S.look.show[k] = saved[k]; });
-  [['lkPlanets', 'planets'], ['lkStars', 'stars'], ['lkNames', 'names'], ['lkLines', 'lines']].forEach(function (p) {
+  if (saved) ['planets', 'stars', 'names', 'lines', 'milky'].forEach(function (k) { if (typeof saved[k] === 'boolean') S.look.show[k] = saved[k]; });
+  [['lkPlanets', 'planets'], ['lkStars', 'stars'], ['lkNames', 'names'], ['lkLines', 'lines'], ['lkMilky', 'milky']].forEach(function (p) {
     $(p[0]).checked = S.look.show[p[1]];
     $(p[0]).addEventListener('change', function () { S.look.show[p[1]] = $(p[0]).checked; save('wo:look', S.look.show); drawLook(); });
   });
@@ -1904,6 +2057,74 @@ function clampLook() {
     if (!sr) { sr = rows[0]; if (!sr) return; S.selected = sr.s.id; }
     lookAt(sr); clampLook(); recompute();
   });
+})();
+
+/* ---------- phone motion: point the phone at the sky ---------- */
+var motionEvt = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', wakeLock = null;
+function motionMsg(t) { var m = $('motionMsg'); if (m) { m.textContent = t || ''; m.hidden = !t; } }
+function motionHandler(e) {
+  var a = e.alpha, b = e.beta, c = e.gamma;
+  if (typeof e.webkitCompassHeading === 'number' && isFinite(e.webkitCompassHeading)) a = 360 - e.webkitCompassHeading;
+  if (a == null || b == null || c == null) return;
+  var ca = Math.cos(a * RAD), sa = Math.sin(a * RAD), cb = Math.cos(b * RAD), sb = Math.sin(b * RAD), cg = Math.cos(c * RAD), sg = Math.sin(c * RAD);
+  var raw = {
+    r: [ca * cg - sa * sb * sg, sa * cg + ca * sb * sg, -cb * sg],
+    u: [-sa * cb, ca * cb, sb],
+    f: [-(ca * sg + sa * sb * cg), -(sa * sg - ca * sb * cg), -(cb * cg)]
+  };
+  var M = S.motion;
+  M.got = true;
+  ['f', 'r', 'u'].forEach(function (k) {
+    var v = raw[k];
+    if (M[k]) { v = [M[k][0] + (v[0] - M[k][0]) * 0.3, M[k][1] + (v[1] - M[k][1]) * 0.3, M[k][2] + (v[2] - M[k][2]) * 0.3]; }
+    var n = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1;
+    M[k] = [v[0] / n, v[1] / n, v[2] / n];
+  });
+  if (!M.raf) M.raf = requestAnimationFrame(function () { M.raf = 0; drawLook(); });
+}
+function motionUi() {
+  var on = S.motion.on;
+  $('lMotion').textContent = on ? 'Stop pointing' : 'Point phone at sky';
+  $('lAlign').hidden = !on; $('lAlignReset').hidden = !on; $('lFind').hidden = on; $('lUp').hidden = on;
+}
+function startMotion() {
+  var D = window.DeviceOrientationEvent;
+  function go() {
+    S.motion.on = true; S.motion.got = false; S.motion.f = S.motion.r = S.motion.u = null;
+    window.addEventListener(motionEvt, motionHandler);
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }, function () {}); } catch (x) {}
+    motionUi();
+    motionMsg('Hold your phone up like a window to the sky. The view follows where you point. Aim the cross at the Moon, a planet or a named star and tap Align once if the labels look rotated.');
+    setTimeout(function () { if (S.motion.on && !S.motion.got) motionMsg('This device is not reporting its direction, so the view cannot follow it. You can still drag to look around.'); }, 2500);
+  }
+  if (D && typeof D.requestPermission === 'function') {
+    D.requestPermission().then(function (st) {
+      if (st === 'granted') go(); else motionMsg('Motion access was refused. On iPhone, allow it in Settings, then Safari, then Motion & Orientation Access, and reload the page.');
+    }, function () { motionMsg('Could not ask for motion access. Reload the page and try again.'); });
+  } else if (D) go();
+  else motionMsg('This device cannot report which way it points.');
+}
+function stopMotion() {
+  window.removeEventListener(motionEvt, motionHandler);
+  S.motion.on = false;
+  try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (x) {}
+  motionUi(); motionMsg(''); drawLook();
+}
+function alignNow() {
+  var cv = $('look'), size = cv.clientWidth, c = size / 2, best = null, bd = 1e9;
+  (S.skyHits || []).forEach(function (h) { if (h.az == null) return; var d = Math.sqrt((h.x - c) * (h.x - c) + (h.y - c) * (h.y - c)); if (d < bd) { bd = d; best = h; } });
+  if (!best || bd > size * 0.35) { motionMsg('Put the cross right on the Moon, a planet or a named star, then tap Align.'); return; }
+  var diff = ((best.az - S.look.yaw + 540) % 360) - 180;
+  S.decl = ((S.decl + diff + 540) % 360) - 180;
+  save('wo:decl', { d: S.decl });
+  motionMsg('Aligned to ' + best.name + '. The compass is now corrected by ' + Math.round(S.decl) + '° and will be remembered.');
+  drawLook();
+}
+(function wireMotion() {
+  var sd = load('wo:decl'); if (sd && isFinite(sd.d)) S.decl = sd.d;
+  $('lMotion').addEventListener('click', function () { if (S.motion.on) stopMotion(); else startMotion(); });
+  $('lAlign').addEventListener('click', alignNow);
+  $('lAlignReset').addEventListener('click', function () { S.decl = 0; save('wo:decl', { d: 0 }); motionMsg('Alignment cleared.'); drawLook(); });
 })();
 
 /* ---------- filter ---------- */

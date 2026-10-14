@@ -2074,9 +2074,12 @@ function motionHandler(e) {
   };
   var M = S.motion;
   M.got = true;
+  // heavier smoothing, and ignore tiny wobbles (under about 0.25 degrees) so a steadily held phone stays still
+  var dd = M.f ? Math.abs(raw.f[0] - M.f[0]) + Math.abs(raw.f[1] - M.f[1]) + Math.abs(raw.f[2] - M.f[2]) + Math.abs(raw.u[0] - M.u[0]) + Math.abs(raw.u[1] - M.u[1]) + Math.abs(raw.u[2] - M.u[2]) : 1;
+  if (M.f && dd < 0.006) return;
   ['f', 'r', 'u'].forEach(function (k) {
     var v = raw[k];
-    if (M[k]) { v = [M[k][0] + (v[0] - M[k][0]) * 0.3, M[k][1] + (v[1] - M[k][1]) * 0.3, M[k][2] + (v[2] - M[k][2]) * 0.3]; }
+    if (M[k]) { var w = dd > 0.12 ? 0.35 : 0.12; v = [M[k][0] + (v[0] - M[k][0]) * w, M[k][1] + (v[1] - M[k][1]) * w, M[k][2] + (v[2] - M[k][2]) * w]; }
     var n = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1;
     M[k] = [v[0] / n, v[1] / n, v[2] / n];
   });

@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Overhead">
+<meta name="theme-color" content="#0a0e16">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
 <title>What's Overhead</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,6 +82,14 @@ header { display: grid; gap: 6px; }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
 #globe, #look { width: 100%; max-width: 520px; aspect-ratio: 1; display: block; margin: 0 auto; touch-action: none; cursor: grab; }
 #sky { width: 100%; max-width: 520px; aspect-ratio: 1; display: block; margin: 0 auto; }
+.fsrow { display: flex; justify-content: center; margin-top: 8px; }
+.fsbar { display: none; }
+body.fs-on { overflow: hidden; }
+.card.full { position: fixed; inset: 0; z-index: 100; border: 0; border-radius: 0; background: #000; padding: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.card.full > *:not(canvas):not(.fsbar) { display: none !important; }
+#viewCard.full canvas { max-width: none; width: min(100vw, 100dvh); height: min(100vw, 100dvh); aspect-ratio: auto; margin: 0; }
+.card.full .fsbar { display: flex; position: absolute; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); gap: 8px; z-index: 5; }
+.card.full .fsbar .btn { background: rgba(17,24,38,0.85); color: #e3eaf5; border-color: #2c3b57; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); margin-top: 8px; justify-content: center; }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: baseline; }
 .hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; text-align: center; }
@@ -164,7 +179,7 @@ details.settings[open] > summary { margin-bottom: 14px; }
   </section>
 
   <div class="grid">
-    <section class="card" aria-label="Sky chart and globe">
+    <section class="card" id="viewCard" aria-label="Sky chart and globe">
       <div class="cardhead">
         <h2 id="viewhead">Globe</h2>
         <div class="seg" role="group" aria-label="View">
@@ -187,6 +202,8 @@ details.settings[open] > summary { margin-bottom: 14px; }
       <canvas id="sky" hidden role="img" aria-label="Chart of satellites above the horizon, centered on straight up"></canvas>
       <canvas id="look" role="img" aria-label="Interactive view looking up from your location. Drag to look around, pinch to zoom." hidden></canvas>
       <canvas id="globe" role="img" aria-label="Globe showing satellites around the Earth. Drag to rotate."></canvas>
+      <div class="fsbar"><button class="btn" id="fsPoint" type="button" hidden>Point phone</button><button class="btn" id="fsExit" type="button">Exit full screen</button></div>
+      <div class="fsrow"><button class="btn" id="fsBtn" type="button">Full screen</button></div>
       <div id="skyNote" hidden>
         <div class="legend">
           <span><i style="background:var(--vis)"></i>Visible to the eye</span>
@@ -2251,6 +2268,29 @@ $('sky').addEventListener('click', function (ev) {
 });
 
 window.addEventListener('resize', function () { draw(); drawGlobe(); drawLook(); });
+// full screen: real full screen where the browser allows it (Android, iPad, desktop), otherwise the view just fills the page
+(function wireFull() {
+  var card = $('viewCard'), btn = $('fsBtn'), isFull = false;
+  function redraw() { setTimeout(function () { draw(); drawGlobe(); drawLook(); }, 60); }
+  function syncPoint() { var p = $('fsPoint'); p.hidden = S.glob.tab !== 'look'; p.textContent = S.motion.on ? 'Stop pointing' : 'Point phone'; }
+  function enter() {
+    isFull = true; card.classList.add('full'); document.body.classList.add('fs-on'); syncPoint();
+    try { var rq = card.requestFullscreen || card.webkitRequestFullscreen; if (rq) { var p = rq.call(card); if (p && p.catch) p.catch(function () {}); } } catch (x) {}
+    redraw();
+  }
+  function leave() {
+    isFull = false; card.classList.remove('full'); document.body.classList.remove('fs-on');
+    try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen(); } catch (x) {}
+    redraw();
+  }
+  btn.addEventListener('click', enter);
+  $('fsExit').addEventListener('click', leave);
+  $('fsPoint').addEventListener('click', function () { $('lMotion').click(); setTimeout(syncPoint, 50); });
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (ev) {
+    document.addEventListener(ev, function () { if (isFull && !document.fullscreenElement && !document.webkitFullscreenElement) { isFull = false; card.classList.remove('full'); document.body.classList.remove('fs-on'); redraw(); } });
+  });
+  document.addEventListener('keydown', function (e) { if (isFull && e.key === 'Escape') leave(); });
+})();
 setInterval(function () {
   if (!S.loaded || S.viewMs != null) return;
   recompute();

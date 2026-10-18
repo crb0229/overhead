@@ -19,13 +19,18 @@ jobs:
         run: |
           mkdir -p data
           date -u > data/status.txt
-          for pair in stations:stations visual:visual starlink:starlink last30:tle-new+last-30-days; do
+          for pair in stations:stations visual:visual starlink:starlink active:active last30:tle-new+last-30-days; do
             g="${pair%%:*}"
             names="${pair##*:}"
             for name in ${names//+/ }; do
               url="https://celestrak.org/NORAD/elements/gp.php?GROUP=${name}&FORMAT=tle"
               code=$(curl --silent --max-time 90 -o "data/${g}.tmp" -w '%{http_code}' "$url" || echo fail)
               echo "${g} (${name}) http=${code} bytes=$(wc -c < "data/${g}.tmp" 2>/dev/null || echo 0)" >> data/status.txt
+              if [ "$g" = "active" ] && [ "$code" = "200" ]; then
+                # Starlink has its own file, so drop it here to keep this one small
+                paste -d'|' - - - < "data/${g}.tmp" | grep -v '^STARLINK' | tr '|' '\n' > "data/${g}.flt" && mv "data/${g}.flt" "data/${g}.tmp"
+                echo "active after dropping Starlink: bytes=$(wc -c < "data/${g}.tmp")" >> data/status.txt
+              fi
               if [ "$code" = "200" ] && grep -q '^1 ' "data/${g}.tmp"; then
                 mv "data/${g}.tmp" "data/${g}.tle"
                 break

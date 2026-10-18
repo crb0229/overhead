@@ -1,7 +1,9 @@
-Sun Oct 18 09:48:16 UTC 2026
+Sun Oct 18 23:48:18 UTC 2026
 stations (stations) http=200 bytes=2856
 visual (visual) http=200 bytes=26040
 starlink (starlink) http=200 bytes=1789368
+active (active) http=200 bytes=2675904
+active after dropping Starlink: bytes=886368
 last30 (tle-new) http=200 bytes=67
 Invalid query: "GROUP=tle-new&FORMAT=tle" (GROUP=tle-new not found)
 last30 (last-30-days) http=404 bytes=16

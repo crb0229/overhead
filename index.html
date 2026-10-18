@@ -2080,23 +2080,32 @@ function clampLook() {
 var motionEvt = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', wakeLock = null;
 function motionMsg(t) { var m = $('motionMsg'); if (m) { m.textContent = t || ''; m.hidden = !t; } }
 function motionHandler(e) {
-  var a = e.alpha, b = e.beta, c = e.gamma;
-  if (typeof e.webkitCompassHeading === 'number' && isFinite(e.webkitCompassHeading)) a = 360 - e.webkitCompassHeading;
+  var a = e.alpha, b = e.beta, c = e.gamma, M = S.motion;
   if (a == null || b == null || c == null) return;
+  // The compass is the noisy part. On iPhone the gyro-smooth alpha does the moment-to-moment work and the compass only
+  // nudges a slow correction; elsewhere the compass alpha is smoothed on its own before use.
+  var hasCompass = typeof e.webkitCompassHeading === 'number' && isFinite(e.webkitCompassHeading);
+  var wrap = function (d) { return ((d + 540) % 360) - 180; };
+  if (hasCompass) {
+    var want = wrap(360 - e.webkitCompassHeading - a);
+    if (M.off == null) M.off = want; else M.off += wrap(want - M.off) * 0.01;
+    a = a + M.off;
+  } else if (e.absolute || motionEvt === 'deviceorientationabsolute') {
+    if (M.al == null) M.al = a; else M.al += wrap(a - M.al) * 0.12;
+    a = M.al;
+  }
   var ca = Math.cos(a * RAD), sa = Math.sin(a * RAD), cb = Math.cos(b * RAD), sb = Math.sin(b * RAD), cg = Math.cos(c * RAD), sg = Math.sin(c * RAD);
   var raw = {
     r: [ca * cg - sa * sb * sg, sa * cg + ca * sb * sg, -cb * sg],
     u: [-sa * cb, ca * cb, sb],
     f: [-(ca * sg + sa * sb * cg), -(sa * sg - ca * sb * cg), -(cb * cg)]
   };
-  var M = S.motion;
   M.got = true;
-  // heavier smoothing, and ignore tiny wobbles (under about 0.25 degrees) so a steadily held phone stays still
-  var dd = M.f ? Math.abs(raw.f[0] - M.f[0]) + Math.abs(raw.f[1] - M.f[1]) + Math.abs(raw.f[2] - M.f[2]) + Math.abs(raw.u[0] - M.u[0]) + Math.abs(raw.u[1] - M.u[1]) + Math.abs(raw.u[2] - M.u[2]) : 1;
-  if (M.f && dd < 0.006) return;
+  var now = performance.now(), dt = M.t ? Math.min(100, now - M.t) : 16; M.t = now;
+  var w = 1 - Math.exp(-dt / 70);   // same smoothing whatever the event rate
   ['f', 'r', 'u'].forEach(function (k) {
     var v = raw[k];
-    if (M[k]) { var w = dd > 0.12 ? 0.35 : 0.12; v = [M[k][0] + (v[0] - M[k][0]) * w, M[k][1] + (v[1] - M[k][1]) * w, M[k][2] + (v[2] - M[k][2]) * w]; }
+    if (M[k]) { v = [M[k][0] + (v[0] - M[k][0]) * w, M[k][1] + (v[1] - M[k][1]) * w, M[k][2] + (v[2] - M[k][2]) * w]; }
     var n = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1;
     M[k] = [v[0] / n, v[1] / n, v[2] / n];
   });
@@ -2110,7 +2119,7 @@ function motionUi() {
 function startMotion() {
   var D = window.DeviceOrientationEvent;
   function go() {
-    S.motion.on = true; S.motion.got = false; S.motion.f = S.motion.r = S.motion.u = null;
+    S.motion.on = true; S.motion.got = false; S.motion.f = S.motion.r = S.motion.u = null; S.motion.off = null; S.motion.al = null; S.motion.t = 0;
     window.addEventListener(motionEvt, motionHandler);
     try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }, function () {}); } catch (x) {}
     motionUi();

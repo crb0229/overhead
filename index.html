@@ -351,6 +351,9 @@ function parseTLEs(text, opts) {
       var rec;
       try { rec = satellite.twoline2satrec(a, b); } catch (e) { continue; }
       if (!rec || rec.error) continue;
+      // geostationary and geosynchronous (about one orbit a day) sit still in the sky and are far too dim to see, so skip them
+      var revs = rec.no * 1440 / (2 * Math.PI);
+      if (!opts.keepGeo && revs > 0.9 && revs < 1.1) continue;
       var id = a.substr(2, 5).trim();
       var prev = i > 0 ? lines[i - 1].trim() : '';
       var name = (!prev || /^[12] \d{5}/.test(prev)) ? 'NORAD ' + id : prev.replace(/^0 /, '');

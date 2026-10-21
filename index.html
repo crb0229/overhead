@@ -192,6 +192,7 @@ details.settings[open] > summary { margin-bottom: 14px; }
         <summary id="filterSum">Filter: everything shown</summary>
         <div class="filters" id="catBoxes"></div>
         <div class="filters"><label><input type="checkbox" id="fVis"> Only what is visible to the eye right now</label></div>
+        <div class="filters"><label><input type="checkbox" id="fHigh"> Show slow-moving high orbits (GPS and similar, never visible by eye)</label></div>
         <div class="filters"><label><input type="checkbox" id="fActive"> Also load every other working satellite (several thousand, mostly too dim to see)</label></div>
         <div class="btnrow" style="margin-top:6px">
           <button class="btn" id="fAll" type="button">Show everything</button>
@@ -361,7 +362,7 @@ function parseTLEs(text, opts) {
       var id = a.substr(2, 5).trim();
       var prev = i > 0 ? lines[i - 1].trim() : '';
       var name = (!prev || /^[12] \d{5}/.test(prev)) ? 'NORAD ' + id : prev.replace(/^0 /, '');
-      out.push({ name: name, id: id, satrec: rec, epoch: tleEpochMs(a), l1: a, l2: b });
+      out.push({ name: name, id: id, satrec: rec, epoch: tleEpochMs(a), l1: a, l2: b, slow: revs < 10 });
     }
   }
   return out;
@@ -808,7 +809,7 @@ var S = {
   viewMs: null, ctx: null, rows: [], trails: [], hits: [],
   selected: null, starOpen: false,
   passes: [], passState: 'idle', passToken: 0, passBase: 0, loaded: false, pasted: false,
-  filt: { stations: true, constellation: true, navigation: true, weather: true, rocket: true, debris: true, other: true, visOnly: false }, counts: {}, look: { yaw: 180, pitch: 35, fov: 75, init: false, show: { planets: true, stars: true, names: true, lines: false, milky: true } }, pick: null, skyHits: [], skyKey: '', planets: [], selTrack: null, hits3: [], motion: { on: false, f: null, r: null, u: null, got: false, raf: 0 }, cam: { on: false, stream: null, video: null, fov: 0, raf: 0 }, decl: 0, glob: { ring: true, tab: 'globe', lon0: 0, lat0: 0, k: 1, star: false }, globPts: [], orbit: null, sunEcf: null, obsEcf: null, ghits: []
+  filt: { stations: true, constellation: true, navigation: true, weather: true, rocket: true, debris: true, other: true, visOnly: false, high: false }, counts: {}, look: { yaw: 180, pitch: 35, fov: 75, init: false, show: { planets: true, stars: true, names: true, lines: false, milky: true } }, pick: null, skyHits: [], skyKey: '', planets: [], selTrack: null, hits3: [], motion: { on: false, f: null, r: null, u: null, got: false, raf: 0 }, cam: { on: false, stream: null, video: null, fov: 0, raf: 0 }, decl: 0, glob: { ring: true, tab: 'globe', lon0: 0, lat0: 0, k: 1, star: false }, globPts: [], orbit: null, sunEcf: null, obsEcf: null, ghits: []
 };
 
 function load(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
@@ -969,6 +970,7 @@ function recompute() {
     if (s.group === 'active' && !S.opts.all) continue;
     var needAll = wantGlobe && (s.group !== 'starlink' || S.glob.star || s.id === S.selected);
     if (!needAll && s.skipTo > ms) continue;
+    if (s.slow && !S.filt.high) continue;   // high orbits (GPS and similar) crawl across the sky and are never seen by eye
     var sm = sampleSat(s, ctx, obs);
     if (!sm) continue;
     s.skipTo = sm.el < -8 ? ms + Math.min(240, (-sm.el - 6) * 2.5) * 1000 : 0;
@@ -1175,7 +1177,7 @@ function renderPasses() {
   var list = S.passes.filter(function (p) {
     if (p.endMs < now) return false;
     var sat = S.byId && S.byId[p.id];
-    if (sat && !allowed(catOf(sat))) { hidden = true; return false; }
+    if (sat && (!allowed(catOf(sat)) || (sat.slow && !S.filt.high))) { hidden = true; return false; }
     return true;
   });
   if (!list.length) {
@@ -2249,7 +2251,7 @@ function updateCounts() {
 }
 function syncFilter() {
   CATS.forEach(function (c) { var b = $('cat-' + c[0]); if (b) b.checked = allowed(c[0]); });
-  $('fVis').checked = S.filt.visOnly;
+  $('fVis').checked = S.filt.visOnly; $('fHigh').checked = S.filt.high;
   var off = CATS.filter(function (c) { return !allowed(c[0]); }).length;
   $('filterSum').textContent = 'Filter: ' + (S.filt.visOnly ? 'only what is visible' + (off ? ', ' + off + ' type' + (off > 1 ? 's' : '') + ' hidden' : '') : (off ? off + ' type' + (off > 1 ? 's' : '') + ' hidden' : 'everything shown'));
 }
@@ -2275,8 +2277,9 @@ function applyFilter(reload) {
     box.appendChild(lab);
   });
   $('fVis').addEventListener('change', function () { S.filt.visOnly = $('fVis').checked; applyFilter(false); });
+  $('fHigh').addEventListener('change', function () { S.filt.high = $('fHigh').checked; applyFilter(false); });
   $('fAll').addEventListener('click', function () {
-    Object.keys(S.filt).forEach(function (k) { S.filt[k] = k !== 'visOnly'; });
+    Object.keys(S.filt).forEach(function (k) { if (k !== 'high') S.filt[k] = k !== 'visOnly'; });
     var was = S.opts.starlink; S.opts.starlink = true; $('optStarlink').checked = true; applyFilter(!was);
   });
   $('fNoStar').addEventListener('click', function () { S.opts.starlink = false; $('optStarlink').checked = false; applyFilter(false); });

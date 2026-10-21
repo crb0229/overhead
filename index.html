@@ -228,6 +228,7 @@ details.settings[open] > summary { margin-bottom: 14px; }
           <label><input type="checkbox" id="lkMilky" checked> Milky Way</label>
         </div>
         <p id="motionMsg" class="hint" hidden></p>
+        <p id="camMsg" class="hint" hidden style="color:var(--vis)"></p>
         <div id="camRow" class="filters" hidden style="justify-content:center"><label style="flex-direction:column;align-items:stretch">Match camera size <input type="range" id="camFov" min="30" max="85" step="1" value="50"></label>
         <p class="hint">If labels sit right in the middle but drift off toward the edges, slide this until the Moon or two bright stars line up with their labels.</p></div>
         <div class="infobox"><canvas id="lookPic" width="160" height="160" style="width:80px;height:80px" hidden aria-hidden="true"></canvas><p id="lookInfo" class="hint"></p></div>
@@ -1825,6 +1826,10 @@ function drawLook() {
     try { g.drawImage(cv0, (size - vw * sc) / 2, (size - vh * sc) / 2, vw * sc, vh * sc); } catch (x) {}
     g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, 0, size, size);
   } else g.fillRect(0, 0, size, size);
+  if (S.cam.on && !camOn) {   // camera asked for but no picture yet: say so on the view itself, also in full screen
+    g.save(); g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, size - 34, size, 34); g.fillStyle = '#ffd166'; g.font = '600 13px ' + font; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('Camera on, but no picture yet', size / 2, size - 17); g.restore();
+  }
   if (!camOn && sunEl > -14) {
     var sp = PJ(sunAz, sunEl);
     if (sp.ok) {
@@ -2169,21 +2174,29 @@ function camUi() {
   $('camRow').hidden = !on;
   var fc = $('fsCam'); if (fc) { fc.hidden = S.glob.tab !== 'look'; fc.textContent = on ? 'Camera off' : 'Camera'; }
 }
+function camMsg(t) { var m = $('camMsg'); m.textContent = t || ''; m.hidden = !t; }
 function camLoop() { if (!S.cam.on) return; drawLook(); S.cam.raf = requestAnimationFrame(camLoop); }
 function startCam() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { motionMsg('This browser cannot use the camera here.'); return; }
+  camMsg('Starting the camera...');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camMsg('This browser does not let web pages use the camera. On iPhone, Brave may block it: open this page in Safari to use the camera view.'); return; }
   if (!S.motion.on) startMotion();   // the camera only makes sense when the view follows the phone
   navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } } }).then(function (st) {
     var v = S.cam.video;
     if (!v) {
       v = document.createElement('video');
       v.setAttribute('playsinline', ''); v.setAttribute('muted', ''); v.muted = true; v.autoplay = true;
-      v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+      v.style.cssText = 'position:fixed;left:0;bottom:0;width:64px;height:64px;opacity:0.01;pointer-events:none;z-index:-1';
       document.body.appendChild(v); S.cam.video = v;
     }
     v.srcObject = st; S.cam.stream = st; S.cam.on = true;
     var p = v.play(); if (p && p.catch) p.catch(function () {});
+    setTimeout(function () {
+      if (!S.cam.on) return;
+      if (v.videoWidth > 0) camMsg('');
+      else { var p2 = v.play(); if (p2 && p2.catch) p2.catch(function () {}); camMsg('The camera is on but no picture is coming through. On iPhone, try this page in Safari, or tap Camera off and on again.'); }
+    }, 3000);
     v.onloadedmetadata = function () {
+      var p3 = v.play(); if (p3 && p3.catch) p3.catch(function () {});
       if (!S.cam.fov) {   // first guess from the picture shape; the slider fixes it for your phone
         var a = Math.max(v.videoWidth, v.videoHeight) / Math.max(1, Math.min(v.videoWidth, v.videoHeight));
         S.cam.fov = a > 1.6 ? 43 : 55; $('camFov').value = S.cam.fov;
@@ -2191,12 +2204,12 @@ function startCam() {
     };
     camUi(); cancelAnimationFrame(S.cam.raf); camLoop();
   }, function (e) {
-    motionMsg(e && e.name === 'NotAllowedError' ? 'Camera access was refused. Allow the camera for this site in your browser settings, then try again.' : 'Could not start the camera (' + (e && e.message || e) + ').');
+    camMsg(e && e.name === 'NotAllowedError' ? 'Camera access was refused. Allow the camera for this site in your browser settings (on iPhone: Settings, then your browser, then Camera), then try again.' : 'Could not start the camera (' + (e && (e.name + ': ' + e.message) || e) + '). On iPhone, try this page in Safari.');
   });
 }
 function stopCam() {
   if (S.cam.stream) S.cam.stream.getTracks().forEach(function (t) { t.stop(); });
-  S.cam.stream = null; S.cam.on = false; cancelAnimationFrame(S.cam.raf);
+  S.cam.stream = null; S.cam.on = false; cancelAnimationFrame(S.cam.raf); camMsg('');
   if (S.cam.video) S.cam.video.srcObject = null;
   camUi(); drawLook();
 }

@@ -19,7 +19,7 @@ jobs:
         run: |
           mkdir -p data
           date -u > data/status.txt
-          for pair in stations:stations visual:visual starlink:starlink active:active last30:tle-new+last-30-days; do
+          for pair in stations:stations visual:visual starlink:starlink active:active; do
             g="${pair%%:*}"
             names="${pair##*:}"
             for name in ${names//+/ }; do

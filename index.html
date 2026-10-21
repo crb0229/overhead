@@ -781,7 +781,7 @@ var HOSTED = true;   // true when published as its own web page with a daily dat
 
 /* Hosted: read the daily copy from the same GitHub repository. Otherwise ask CelesTrak directly. */
 function dataUrls(g) {
-  if (!HOSTED) return [BASE + (g === 'last30' ? 'tle-new' : g)];
+  if (!HOSTED) return [BASE + g];
   var m = location.hostname.match(/^([^.]+)\.github\.io$/), parts = location.pathname.split('/').filter(Boolean);
   var rel = 'data/' + g + '.tle';
   if (m && parts.length) return ['https://raw.githubusercontent.com/' + m[1] + '/' + parts[0] + '/main/' + rel, rel];
@@ -877,23 +877,12 @@ function loadAll(force) {
   var want = ['stations', 'visual'];
   if (S.opts.starlink) want.push('starlink');
   if (S.opts.all) want.push('active');
-  want.push('last30');   // launches from the last 30 days, so new Starlink batches show up early
   $('dataline').textContent = 'Loading orbit data...';
   return Promise.all(want.map(function (g) {
     return loadGroup(g, force).then(function (v) { return { g: g, v: v }; }, function (e) { return { g: g, err: e }; });
   })).then(function (results) {
     var byId = new Map(), oldest = Infinity, failed = [], stale = false, recent = false, firstErr = null;
-    results.sort(function (a, b) { return (a.g === 'last30') - (b.g === 'last30'); });
     results.forEach(function (r) {
-      if (r.g === 'last30') {
-        if (r.err) return;   // optional list
-        parseTLEs(r.v.text).forEach(function (s) {
-          var have = byId.get(s.id);
-          if (have) { have.recent = true; return; }
-          s.recent = true; s.group = isStarlink(s) ? 'starlink' : 'new'; byId.set(s.id, s);
-        });
-        return;
-      }
       if (r.err) { failed.push(r.g); firstErr = firstErr || r.err; return; }
       oldest = Math.min(oldest, r.v.t);
       if (r.v.src === 'stale') stale = true;
@@ -916,6 +905,7 @@ function loadAll(force) {
       return;
     }
     S.sats = Array.from(byId.values());
+    markRecent(S.sats);
     S.fetchedAt = oldest; S.pasted = false;
     var msgs = [];
     if (failed.length) msgs.push('Some lists did not load (' + failed.join(', ') + ').');
@@ -927,12 +917,24 @@ function loadAll(force) {
   });
 }
 
+/* Recent launches, from the launch number in each catalog entry: anything from the newest dozen launches
+   (about the last three weeks at today's launch rate). CelesTrak's own recent-launch list no longer serves this format. */
+function markRecent(list) {
+  var keys = {};
+  list.forEach(function (s) {
+    var m = /^(\d\d)(\d\d\d)/.exec(s.l1.substr(9, 5));
+    if (!m) return;
+    var yy = +m[1]; s.lk = (yy < 57 ? 2000 + yy : 1900 + yy) * 1000 + +m[2]; keys[s.lk] = 1;
+  });
+  var top = Object.keys(keys).map(Number).sort(function (a, b) { return b - a; }).slice(0, 12), cut = top.length ? top[top.length - 1] : Infinity;
+  list.forEach(function (s) { s.recent = s.lk >= cut; });
+}
 function classify(list) {
   var n = list.filter(function (s) { return !isStarlink(s); }).length;
   list.forEach(function (s) { s.group = isStarlink(s) ? 'starlink' : (n <= 400 ? 'bright' : 'active'); });
 }
 function useSats(list, t, pasted) {
-  classify(list); S.sats = list; S.fetchedAt = t; S.pasted = !!pasted; S.loaded = true;
+  classify(list); markRecent(list); S.sats = list; S.fetchedAt = t; S.pasted = !!pasted; S.loaded = true;
   afterData();
 }
 
@@ -957,12 +959,18 @@ function recompute() {
   var ms = S.viewMs != null ? S.viewMs : Date.now(), obs = observer();
   var ctx = makeCtx(ms, obs), ctxN = makeCtx(ms + 60000, obs), rows = [];
   var wantGlobe = S.glob.tab === 'globe', glob = [], counts = {};
+  // Working out every position takes a phone a good fraction of a second, which made the view stutter.
+  // Anything well below the horizon can't rise for a while, so it is skipped until it might.
+  if (S.skipBase == null || ms < S.skipBase || ms - S.skipBase > 10 * 60e3) { S.skipBase = ms; S.sats.forEach(function (x) { x.skipTo = 0; }); }
   for (var i = 0; i < S.sats.length; i++) {
     var s = S.sats[i];
     if (s.group === 'starlink' && !S.opts.starlink) continue;
     if (s.group === 'active' && !S.opts.all) continue;
+    var needAll = wantGlobe && (s.group !== 'starlink' || S.glob.star || s.id === S.selected);
+    if (!needAll && s.skipTo > ms) continue;
     var sm = sampleSat(s, ctx, obs);
     if (!sm) continue;
+    s.skipTo = sm.el < -8 ? ms + Math.min(240, (-sm.el - 6) * 2.5) * 1000 : 0;
     var vis = isVisible(sm, ctx), cat = catOf(s);
     if (sm.el > 0) counts[cat] = (counts[cat] || 0) + 1;
     if (!allowed(cat) || (S.filt.visOnly && !vis)) continue;
@@ -1040,7 +1048,7 @@ function rowEl(r) {
   left.appendChild(el('div', 'nm', r.s.name));
   var d = describeSat(r.s.name);
   if (d) left.appendChild(el('div', 'ds', d));
-  if (r.s.recent) left.appendChild(el('div', 'ds', 'Launched in the last 30 days'));
+  if (r.s.recent) left.appendChild(el('div', 'ds', 'Recent launch (one of the last dozen worldwide)'));
   var hd = headingText(r);
   if (hd) left.appendChild(el('div', 'ds', hd));
   left.appendChild(el('div', 'meta num', Math.round(altitudeKm(r.sm, S.ctx)) + ' km high · ' + Math.round(r.sm.range) + ' km away'));

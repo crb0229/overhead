@@ -1,11 +1,6 @@
-Fri Oct 23 09:54:57 UTC 2026
-stations (stations) http=200 bytes=2856
+Sat Oct 24 09:51:11 UTC 2026
+stations (stations) http=200 bytes=2688
 visual (visual) http=200 bytes=26040
-starlink (starlink) http=403 bytes=143
-GP data has not updated since your last successful
-download of GROUP=starlink at 2026-10-22 09:55:02 UTC.
-Data is updated once every 2 hours.
-active (active) http=403 bytes=141
-GP data has not updated since your last successful
-download of GROUP=active at 2026-10-22 09:55:03 UTC.
-Data is updated once every 2 hours.
+starlink (starlink) http=200 bytes=1787688
+active (active) http=200 bytes=2673384
+active after dropping Starlink: bytes=885528

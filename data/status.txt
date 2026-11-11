@@ -1,6 +1,6 @@
-Tue Nov 10 10:14:03 UTC 2026
+Wed Nov 11 10:19:24 UTC 2026
 stations (stations) http=200 bytes=2520
 visual (visual) http=200 bytes=26208
-starlink (starlink) http=200 bytes=1784328
+starlink (starlink) http=200 bytes=1783992
 active (active) http=200 bytes=2668512
-active after dropping Starlink: bytes=884184
+active after dropping Starlink: bytes=884520

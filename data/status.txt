@@ -1,6 +1,9 @@
-Fri Nov 27 19:03:48 UTC 2026
-stations (stations) http=200 bytes=2184
-visual (visual) http=200 bytes=26040
-starlink (starlink) http=200 bytes=1777776
-active (active) http=200 bytes=2657592
-active after dropping Starlink: bytes=879816
+Sat Nov 28 17:39:25 UTC 2026
+stations (stations) http=000fail bytes=0
+
+visual (visual) http=000fail bytes=0
+
+starlink (starlink) http=000fail bytes=0
+
+active (active) http=000fail bytes=0
+
